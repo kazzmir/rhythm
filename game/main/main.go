@@ -6,6 +6,7 @@ import (
     "os"
     "fmt"
     "image/color"
+    "image/png"
     "path/filepath"
     "sync"
 
@@ -173,6 +174,19 @@ func (engine *Engine) Close() {
     }
 }
 
+func (engine *Engine) TakeScreenshot() {
+    output := ebiten.NewImage(ScreenWidth, ScreenHeight)
+    output.Fill(color.NRGBA{R: 0, G: 0, B: 0, A: 255})
+    engine.Draw(output)
+    filename := fmt.Sprintf("rhythm-%s.png", time.Now().Format("2006-01-02-150405"))
+    file, err := os.Create(filename)
+    if err == nil {
+        png.Encode(file, output)
+        file.Close()
+        log.Printf("Saved screenshot to %s", filename)
+    }
+}
+
 func (engine *Engine) Update() error {
     engine.DoSong.Do(func(){
         engine.Song.Play()
@@ -197,6 +211,8 @@ func (engine *Engine) Update() error {
         switch key {
             case ebiten.KeyEscape, ebiten.KeyCapsLock:
                 return ebiten.Termination
+            case ebiten.KeyF1:
+                engine.TakeScreenshot()
         }
     }
 
