@@ -68,7 +68,7 @@ func loadOgg(audioContext *audio.Context, songPath string) (*audio.Player, func(
 
 func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
     engine := &Engine{
-        Frets: make([]Fret, 6),
+        Frets: make([]Fret, 5),
         AudioContext: audioContext,
     }
 
@@ -77,7 +77,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
     engine.Frets[2].Key = ebiten.Key3
     engine.Frets[3].Key = ebiten.Key4
     engine.Frets[4].Key = ebiten.Key5
-    engine.Frets[5].Key = ebiten.Key6
+    // engine.Frets[5].Key = ebiten.Key6
 
     difficulty := "medium"
     var low, high int
@@ -157,7 +157,8 @@ func (engine *Engine) Close() {
 
 func (engine *Engine) Update() error {
     engine.DoSong.Do(func(){
-        engine.Song.Play()
+        // engine.Song.Play()
+        engine.Guitar.Play()
     })
 
     if engine.StartTime.IsZero() {
@@ -187,7 +188,9 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
     playLine := 80
 
-    vector.StrokeLine(screen, float32(playLine), 20, float32(playLine), 500, 3, color.RGBA{R: 255, G: 255, B: 255, A: 255}, true)
+    white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+
+    vector.StrokeLine(screen, float32(playLine), 20, float32(playLine), 450, 3, color.RGBA{R: 255, G: 255, B: 255, A: 255}, true)
 
     delta := time.Since(engine.StartTime)
     for i, fret := range engine.Frets {
@@ -211,7 +214,7 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
         vector.FillCircle(screen, float32(playLine), float32(yFret), 20, transparent, false)
 
         if !fret.Press.IsZero() {
-            vector.StrokeCircle(screen, float32(playLine), float32(yFret), 21, 2, fretColor, false)
+            vector.StrokeCircle(screen, float32(playLine), float32(yFret), 21, 2, white, false)
         }
 
         for _, note := range fret.Notes {
