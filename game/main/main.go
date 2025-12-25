@@ -16,19 +16,31 @@ import (
     "github.com/hajimehoshi/ebiten/v2/audio/vorbis"
     "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/vector"
+    "github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
 const ScreenWidth = 1024
 const ScreenHeight = 768
 
+type NoteState int
+const (
+    NoteStatePending NoteState = iota
+    NoteStateHit
+    NoteStateMissed
+)
+
 type Note struct {
     Start time.Duration
     End time.Duration
+    State NoteState
 }
 
 type Fret struct {
     InUse bool
     Notes []Note
+
+    // the index of the next note to be hit
+    StartNote int
 
     // time when this key was pressed (or zero if not pressed)
     Press time.Time
@@ -45,6 +57,9 @@ type Engine struct {
     Song *audio.Player
     Guitar *audio.Player
     DoSong sync.Once
+
+    NotesHit int
+    NotesMissed int
 }
 
 func loadOgg(audioContext *audio.Context, songPath string) (*audio.Player, func(), error) {
@@ -158,7 +173,7 @@ func (engine *Engine) Close() {
 func (engine *Engine) Update() error {
     engine.DoSong.Do(func(){
         // engine.Song.Play()
-        engine.Guitar.Play()
+        // engine.Guitar.Play()
     })
 
     if engine.StartTime.IsZero() {
@@ -179,6 +194,40 @@ func (engine *Engine) Update() error {
             case ebiten.KeyEscape, ebiten.KeyCapsLock:
                 return ebiten.Termination
         }
+    }
+
+    delta := time.Since(engine.StartTime)
+    for i := range engine.Frets {
+        fret := &engine.Frets[i]
+
+        if fret.StartNote < len(fret.Notes) {
+            for fret.Notes[fret.StartNote].End < delta {
+                fret.StartNote += 1
+            }
+        }
+
+        // check if we are pressing the key for the current note
+        if fret.StartNote < len(fret.Notes) {
+            note := &fret.Notes[fret.StartNote]
+            if note.State == NoteStatePending {
+                noteDiff := note.Start - delta
+
+                if noteDiff < 0 {
+                    note.State = NoteStateMissed
+                    engine.NotesMissed += 1
+                } else if noteDiff <= time.Millisecond * 200 && !fret.Press.IsZero() {
+                    keyDiff := delta - fret.Press.Sub(engine.StartTime)
+                    if keyDiff >= 0 && keyDiff <= time.Millisecond * 200 {
+                        note.State = NoteStateHit
+                        engine.NotesHit += 1
+                    } else {
+                        note.State = NoteStateMissed
+                        engine.NotesMissed += 1
+                    }
+                }
+            }
+        }
+
     }
 
     return nil
@@ -218,18 +267,24 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
         }
 
         for _, note := range fret.Notes {
-            start := int64((note.Start - delta) / time.Millisecond) / 8
-            end := int64((note.End - delta) / time.Millisecond) / 8
+            start := int64((note.Start - delta) / time.Millisecond) / 8 + int64(playLine)
+            end := int64((note.End - delta) / time.Millisecond) / 8 + int64(playLine)
 
             for t := start; t <= end; t += 10 {
                 if t < ScreenWidth + 20 && t > -100 {
-                    x := playLine + int(t)
+                    x := int(t)
 
                     vector.FillCircle(screen, float32(x), float32(yFret), 15, fretColor, true)
+                    if note.State == NoteStateHit {
+                        vector.StrokeCircle(screen, float32(x), float32(yFret), 16, 2, white, false)
+                    }
                 }
             }
         }
     }
+
+    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Hit: %d", engine.NotesHit), 10, ScreenHeight - 40)
+    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Missed: %d", engine.NotesMissed), 10, ScreenHeight - 20)
 }
 
 func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
