@@ -94,7 +94,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
     engine.Frets[4].Key = ebiten.Key5
     // engine.Frets[5].Key = ebiten.Key6
 
-    difficulty := "medium"
+    difficulty := "easy"
     var low, high int
     switch difficulty {
         case "easy":
@@ -270,6 +270,21 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
             start := int64((note.Start - delta) / time.Millisecond) / 8 + int64(playLine)
             end := int64((note.End - delta) / time.Millisecond) / 8 + int64(playLine)
 
+            if (start < ScreenWidth + 20 && start > -100) || (end < ScreenWidth + 20 && end > -100) {
+                x := int(start)
+
+                vector.FillCircle(screen, float32(x), float32(yFret), 15, fretColor, true)
+                if note.State == NoteStateHit {
+                    vector.StrokeCircle(screen, float32(x), float32(yFret), 16, 2, white, false)
+                }
+
+                if end - start > 20 {
+                    thickness := 10
+                    vector.FillRect(screen, float32(x), float32(yFret - thickness / 2), float32(end - start), float32(thickness), fretColor, true)
+                }
+            }
+
+            /*
             for t := start; t <= end; t += 10 {
                 if t < ScreenWidth + 20 && t > -100 {
                     x := int(t)
@@ -280,6 +295,7 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
                     }
                 }
             }
+            */
         }
     }
 
