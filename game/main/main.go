@@ -175,7 +175,7 @@ func (engine *Engine) Close() {
 
 func (engine *Engine) Update() error {
     engine.DoSong.Do(func(){
-        // engine.Song.Play()
+        engine.Song.Play()
         // engine.Guitar.Play()
     })
 
@@ -200,6 +200,10 @@ func (engine *Engine) Update() error {
         }
     }
 
+    playGuitar := false
+    stopGuitar := false
+    changeGuitar := false
+
     delta := time.Since(engine.StartTime)
     for i := range engine.Frets {
         /*
@@ -211,7 +215,7 @@ func (engine *Engine) Update() error {
         fret := &engine.Frets[i]
 
         if fret.StartNote < len(fret.Notes) {
-            for fret.Notes[fret.StartNote].End < delta + NoteThresholdLow {
+            for fret.StartNote < len(fret.Notes) && fret.Notes[fret.StartNote].End < delta + NoteThresholdLow {
 
                 if fret.Notes[fret.StartNote].State == NoteStatePending {
                     fret.Notes[fret.StartNote].State = NoteStateMissed
@@ -237,10 +241,14 @@ func (engine *Engine) Update() error {
                 if noteDiff < NoteThresholdLow {
                     note.State = NoteStateMissed
                     engine.NotesMissed += 1
+                    stopGuitar = true
+                    changeGuitar = true
                 } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && pressed {
 
                     note.State = NoteStateHit
                     engine.NotesHit += 1
+                    playGuitar = true
+                    changeGuitar = true
 
                     /*
                     keyDiff := delta - fret.Press.Sub(engine.StartTime)
@@ -257,6 +265,17 @@ func (engine *Engine) Update() error {
             }
         }
 
+    }
+
+    if changeGuitar {
+        if playGuitar && !stopGuitar {
+            if !engine.Guitar.IsPlaying() {
+                engine.Guitar.SetPosition(delta)
+                engine.Guitar.Play()
+            }
+        } else {
+            engine.Guitar.Pause()
+        }
     }
 
     return nil
