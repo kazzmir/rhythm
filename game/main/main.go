@@ -19,10 +19,10 @@ import (
     "github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
-const ScreenWidth = 1024
-const ScreenHeight = 768
+const ScreenWidth = 1200
+const ScreenHeight = 800
 
-const NoteThresholdHigh = time.Millisecond * 150
+const NoteThresholdHigh = time.Millisecond * 250
 const NoteThresholdLow = -time.Millisecond * 150
 
 type NoteState int
@@ -264,25 +264,29 @@ func (engine *Engine) Update() error {
 
 func (engine *Engine) Draw(screen *ebiten.Image) {
 
+    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
+
     playLine := 180
 
     white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 
-    vector.StrokeLine(screen, float32(playLine), 20, float32(playLine), 450, 3, color.RGBA{R: 255, G: 255, B: 255, A: 255}, true)
+    vector.StrokeLine(screen, float32(playLine), 20, float32(playLine), 20 + 600, 5, color.RGBA{R: 255, G: 255, B: 255, A: 255}, true)
 
     const noteSpeed = 5
 
     thresholdLow := int64(NoteThresholdLow / time.Millisecond) / noteSpeed
     thresholdHigh := int64(NoteThresholdHigh / time.Millisecond) / noteSpeed
 
-    vector.FillRect(screen, float32(playLine + int(thresholdLow)), 20, float32(int(thresholdHigh - thresholdLow)), 450, color.NRGBA{R: 100, G: 100, B: 100, A: 100}, true)
+    vector.FillRect(screen, float32(playLine + int(thresholdLow)), 20, float32(int(thresholdHigh - thresholdLow)), 600, color.NRGBA{R: 100, G: 100, B: 100, A: 100}, true)
+
+    const noteSize = 30
 
     delta := time.Since(engine.StartTime)
     for i, fret := range engine.Frets {
 
-        yFret := 100 + i * 60
+        yFret := 100 + i * 100
 
-        vector.StrokeLine(screen, 0, float32(yFret), float32(ScreenWidth), float32(yFret), 2, color.RGBA{R: 200, G: 200, B: 200, A: 255}, true)
+        vector.StrokeLine(screen, 0, float32(yFret), float32(ScreenWidth), float32(yFret), 3, color.RGBA{R: 200, G: 200, B: 200, A: 255}, true)
 
         if i == 0 {
             if fret.StartNote < len(fret.Notes) {
@@ -304,10 +308,10 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
         transparent := fretColor
         transparent.A = 100
-        vector.FillCircle(screen, float32(playLine), float32(yFret), 20, transparent, false)
+        vector.FillCircle(screen, float32(playLine), float32(yFret), noteSize, transparent, false)
 
         if !fret.Press.IsZero() {
-            vector.StrokeCircle(screen, float32(playLine), float32(yFret), 21, 2, white, false)
+            vector.StrokeCircle(screen, float32(playLine), float32(yFret), noteSize + 1, 2, white, false)
         }
 
         renderNote := func(note *Note) bool {
@@ -321,9 +325,9 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
             if (start < ScreenWidth + 20 && start > -100) || (end < ScreenWidth + 20 && end > -100) {
                 x := int(start)
 
-                vector.FillCircle(screen, float32(x), float32(yFret), 15, fretColor, true)
+                vector.FillCircle(screen, float32(x), float32(yFret), noteSize, fretColor, true)
                 if note.State == NoteStateHit {
-                    vector.StrokeCircle(screen, float32(x), float32(yFret), 16, 2, white, false)
+                    vector.StrokeCircle(screen, float32(x), float32(yFret), noteSize + 1, 2, white, false)
                 }
 
                 if end - start > 200 / noteSpeed {
@@ -385,7 +389,7 @@ func main() {
 
     log.Printf("Initializing")
 
-    ebiten.SetTPS(100)
+    ebiten.SetTPS(120)
     ebiten.SetWindowSize(ScreenWidth, ScreenHeight)
     ebiten.SetWindowTitle("Rhythm Game")
 
