@@ -3,11 +3,17 @@ package main
 import (
     "log"
     "time"
+    "os"
+    "fmt"
     "image/color"
+    "path/filepath"
+    "sync"
 
     smflib "gitlab.com/gomidi/midi/v2/smf"
 
     "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/audio"
+    "github.com/hajimehoshi/ebiten/v2/audio/vorbis"
     "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/vector"
 )
@@ -32,11 +38,16 @@ type Fret struct {
 type Engine struct {
     Frets []Fret
     StartTime time.Time
+    AudioContext *audio.Context
+
+    Song *audio.Player
+    DoSong sync.Once
 }
 
-func MakeEngine(midFile string) *Engine {
+func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
     engine := &Engine{
         Frets: make([]Fret, 6),
+        AudioContext: audioContext,
     }
 
     engine.Frets[0].Key = ebiten.Key1
@@ -63,7 +74,31 @@ func MakeEngine(midFile string) *Engine {
             low = 100
     }
 
-    reader := smflib.ReadTracks("notes.mid", 2)
+    songPath := filepath.Join(songDirectory, "song.ogg")
+
+    songDataReader, err := os.Open(songPath)
+    if err != nil {
+        return nil, fmt.Errorf("Unable to open ogg file '%v': %v", songPath, err)
+    }
+
+    songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), songDataReader)
+    if err != nil {
+        return nil, fmt.Errorf("Unable to decode ogg file '%v': %v", songPath, err)
+    }
+
+    songPlayer, err := audioContext.NewPlayer(songReader)
+    if err != nil {
+        return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", songPath, err)
+    }
+
+    engine.Song = songPlayer
+
+    notesPath := filepath.Join(songDirectory, "notes.mid")
+
+    reader := smflib.ReadTracks(notesPath, 2)
+    if reader.Error() != nil {
+        return nil, reader.Error()
+    }
     reader.Do(func (event smflib.TrackEvent) {
         // log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
         var channel, key, velocity uint8
@@ -88,10 +123,14 @@ func MakeEngine(midFile string) *Engine {
         }
     })
 
-    return engine
+    return engine, nil
 }
 
 func (engine *Engine) Update() error {
+    engine.DoSong.Do(func(){
+        engine.Song.Play()
+    })
+
     if engine.StartTime.IsZero() {
         engine.StartTime = time.Now()
     }
@@ -189,7 +228,13 @@ func main() {
     ebiten.SetWindowSize(ScreenWidth, ScreenHeight)
     ebiten.SetWindowTitle("Rhythm Game")
 
-    engine := MakeEngine("notes.mid")
+    audioContext := audio.NewContext(44100)
+
+    engine, err := MakeEngine(audioContext, "Queen - Killer Queen")
+
+    if err != nil {
+        log.Fatalf("Failed to make engine: %v", err)
+    }
 
     ebiten.RunGame(engine)
 
