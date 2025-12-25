@@ -22,6 +22,9 @@ import (
 const ScreenWidth = 1024
 const ScreenHeight = 768
 
+const NoteThresholdHigh = time.Millisecond * 150
+const NoteThresholdLow = -time.Millisecond * 100
+
 type NoteState int
 const (
     NoteStatePending NoteState = iota
@@ -182,9 +185,10 @@ func (engine *Engine) Update() error {
 
     for i := range engine.Frets {
         fret := &engine.Frets[i]
-        fret.Press = time.Time{}
-        if ebiten.IsKeyPressed(fret.Key) {
+        if inpututil.IsKeyJustPressed(fret.Key) {
             fret.Press = time.Now()
+        } else if inpututil.IsKeyJustReleased(fret.Key) {
+            fret.Press = time.Time{}
         }
     }
 
@@ -198,26 +202,37 @@ func (engine *Engine) Update() error {
 
     delta := time.Since(engine.StartTime)
     for i := range engine.Frets {
+        /*
+        if i == 1 {
+            break
+        }
+        */
+
         fret := &engine.Frets[i]
 
         if fret.StartNote < len(fret.Notes) {
-            for fret.Notes[fret.StartNote].End < delta {
+            for fret.Notes[fret.StartNote].End < delta + NoteThresholdLow {
                 fret.StartNote += 1
             }
         }
 
         // check if we are pressing the key for the current note
-        if fret.StartNote < len(fret.Notes) {
-            note := &fret.Notes[fret.StartNote]
-            if note.State == NoteStatePending {
-                noteDiff := note.Start - delta
+        for i := fret.StartNote; i < len(fret.Notes); i++ {
+            note := &fret.Notes[i]
+            noteDiff := note.Start - delta
 
-                if noteDiff < 0 {
+            if noteDiff > NoteThresholdHigh {
+                break
+            }
+
+            if note.State == NoteStatePending {
+                if noteDiff < NoteThresholdLow {
                     note.State = NoteStateMissed
                     engine.NotesMissed += 1
-                } else if noteDiff <= time.Millisecond * 200 && !fret.Press.IsZero() {
+                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && !fret.Press.IsZero() {
                     keyDiff := delta - fret.Press.Sub(engine.StartTime)
-                    if keyDiff >= 0 && keyDiff <= time.Millisecond * 200 {
+                    log.Printf("Key diff: %v", keyDiff)
+                    if keyDiff >= NoteThresholdLow && keyDiff <= NoteThresholdHigh {
                         note.State = NoteStateHit
                         engine.NotesHit += 1
                     } else {
@@ -235,11 +250,18 @@ func (engine *Engine) Update() error {
 
 func (engine *Engine) Draw(screen *ebiten.Image) {
 
-    playLine := 80
+    playLine := 180
 
     white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 
     vector.StrokeLine(screen, float32(playLine), 20, float32(playLine), 450, 3, color.RGBA{R: 255, G: 255, B: 255, A: 255}, true)
+
+    const noteSpeed = 5
+
+    thresholdLow := int64(NoteThresholdLow / time.Millisecond) / noteSpeed
+    thresholdHigh := int64(NoteThresholdHigh / time.Millisecond) / noteSpeed
+
+    vector.FillRect(screen, float32(playLine + int(thresholdLow)), 20, float32(int(thresholdHigh - thresholdLow)), 450, color.NRGBA{R: 100, G: 100, B: 100, A: 100}, true)
 
     delta := time.Since(engine.StartTime)
     for i, fret := range engine.Frets {
@@ -266,9 +288,13 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
             vector.StrokeCircle(screen, float32(playLine), float32(yFret), 21, 2, white, false)
         }
 
-        for _, note := range fret.Notes {
-            start := int64((note.Start - delta) / time.Millisecond) / 8 + int64(playLine)
-            end := int64((note.End - delta) / time.Millisecond) / 8 + int64(playLine)
+        renderNote := func(note *Note) bool {
+            start := int64((note.Start - delta) / time.Millisecond) / noteSpeed + int64(playLine)
+            end := int64((note.End - delta) / time.Millisecond) / noteSpeed + int64(playLine)
+
+            if start > ScreenWidth + 100 {
+                return false
+            }
 
             if (start < ScreenWidth + 20 && start > -100) || (end < ScreenWidth + 20 && end > -100) {
                 x := int(start)
@@ -278,24 +304,33 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
                     vector.StrokeCircle(screen, float32(x), float32(yFret), 16, 2, white, false)
                 }
 
-                if end - start > 20 {
+                if end - start > 200 / noteSpeed {
                     thickness := 10
                     vector.FillRect(screen, float32(x), float32(yFret - thickness / 2), float32(end - start), float32(thickness), fretColor, true)
-                }
-            }
 
-            /*
-            for t := start; t <= end; t += 10 {
-                if t < ScreenWidth + 20 && t > -100 {
-                    x := int(t)
-
-                    vector.FillCircle(screen, float32(x), float32(yFret), 15, fretColor, true)
                     if note.State == NoteStateHit {
-                        vector.StrokeCircle(screen, float32(x), float32(yFret), 16, 2, white, false)
+                        vector.StrokeRect(screen, float32(x), float32(yFret - thickness / 2), float32(end - start), float32(thickness), 2, white, false)
                     }
                 }
+
+                return true
             }
-            */
+
+            return false
+        }
+
+        for i := fret.StartNote - 1; i >= 0 && i < len(fret.Notes); i-- {
+            note := &fret.Notes[i]
+            if !renderNote(note) {
+                break
+            }
+        }
+
+        for i := fret.StartNote; i < len(fret.Notes); i++ {
+            note := &fret.Notes[i]
+            if !renderNote(note) {
+                break
+            }
         }
     }
 
