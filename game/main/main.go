@@ -23,7 +23,7 @@ const ScreenWidth = 1024
 const ScreenHeight = 768
 
 const NoteThresholdHigh = time.Millisecond * 150
-const NoteThresholdLow = -time.Millisecond * 100
+const NoteThresholdLow = -time.Millisecond * 150
 
 type NoteState int
 const (
@@ -212,9 +212,17 @@ func (engine *Engine) Update() error {
 
         if fret.StartNote < len(fret.Notes) {
             for fret.Notes[fret.StartNote].End < delta + NoteThresholdLow {
+
+                if fret.Notes[fret.StartNote].State == NoteStatePending {
+                    fret.Notes[fret.StartNote].State = NoteStateMissed
+                    engine.NotesMissed += 1
+                }
+
                 fret.StartNote += 1
             }
         }
+
+        pressed := inpututil.IsKeyJustPressed(fret.Key)
 
         // check if we are pressing the key for the current note
         for i := fret.StartNote; i < len(fret.Notes); i++ {
@@ -229,7 +237,12 @@ func (engine *Engine) Update() error {
                 if noteDiff < NoteThresholdLow {
                     note.State = NoteStateMissed
                     engine.NotesMissed += 1
-                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && !fret.Press.IsZero() {
+                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && pressed {
+
+                    note.State = NoteStateHit
+                    engine.NotesHit += 1
+
+                    /*
                     keyDiff := delta - fret.Press.Sub(engine.StartTime)
                     log.Printf("Key diff: %v", keyDiff)
                     if keyDiff >= NoteThresholdLow && keyDiff <= NoteThresholdHigh {
@@ -239,6 +252,7 @@ func (engine *Engine) Update() error {
                         note.State = NoteStateMissed
                         engine.NotesMissed += 1
                     }
+                    */
                 }
             }
         }
@@ -269,6 +283,14 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
         yFret := 100 + i * 60
 
         vector.StrokeLine(screen, 0, float32(yFret), float32(ScreenWidth), float32(yFret), 2, color.RGBA{R: 200, G: 200, B: 200, A: 255}, true)
+
+        if i == 0 {
+            if fret.StartNote < len(fret.Notes) {
+                currentNote := fret.Notes[fret.StartNote]
+                diff := (currentNote.Start - delta).Milliseconds()
+                ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%vms", diff), playLine - 80, yFret - 20)
+            }
+        }
 
         fretColor := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
         switch i {
@@ -363,6 +385,7 @@ func main() {
 
     log.Printf("Initializing")
 
+    ebiten.SetTPS(100)
     ebiten.SetWindowSize(ScreenWidth, ScreenHeight)
     ebiten.SetWindowTitle("Rhythm Game")
 
