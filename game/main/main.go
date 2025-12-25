@@ -12,6 +12,9 @@ import (
     "github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+const ScreenWidth = 1024
+const ScreenHeight = 768
+
 type Note struct {
     Start time.Duration
     End time.Duration
@@ -20,6 +23,10 @@ type Note struct {
 type Fret struct {
     InUse bool
     Notes []Note
+
+    // time when this key was pressed (or zero if not pressed)
+    Press time.Time
+    Key ebiten.Key
 }
 
 type Engine struct {
@@ -32,7 +39,12 @@ func MakeEngine(midFile string) *Engine {
         Frets: make([]Fret, 6),
     }
 
-    // keys := make(map[uint8]*Fret)
+    engine.Frets[0].Key = ebiten.Key1
+    engine.Frets[1].Key = ebiten.Key2
+    engine.Frets[2].Key = ebiten.Key3
+    engine.Frets[3].Key = ebiten.Key4
+    engine.Frets[4].Key = ebiten.Key5
+    engine.Frets[5].Key = ebiten.Key6
 
     difficulty := "medium"
     var low, high int
@@ -84,6 +96,14 @@ func (engine *Engine) Update() error {
         engine.StartTime = time.Now()
     }
 
+    for i := range engine.Frets {
+        fret := &engine.Frets[i]
+        fret.Press = time.Time{}
+        if ebiten.IsKeyPressed(fret.Key) {
+            fret.Press = time.Now()
+        }
+    }
+
     keys := inpututil.AppendJustPressedKeys(nil)
     for _, key := range keys {
         switch key {
@@ -96,16 +116,34 @@ func (engine *Engine) Update() error {
 }
 
 func (engine *Engine) Draw(screen *ebiten.Image) {
+
+    playLine := 80
+
+    vector.StrokeLine(screen, float32(playLine), 20, float32(playLine), 500, 3, color.RGBA{R: 255, G: 255, B: 255, A: 255}, true)
+
     delta := time.Since(engine.StartTime)
     for i, fret := range engine.Frets {
-        fretColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+
+        yFret := 100 + i * 60
+
+        vector.StrokeLine(screen, 0, float32(yFret), float32(ScreenWidth), float32(yFret), 2, color.RGBA{R: 200, G: 200, B: 200, A: 255}, true)
+
+        fretColor := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
         switch i {
-            case 0: fretColor = color.RGBA{R: 0, G: 255, B: 0, A: 255} // Green
-            case 1: fretColor = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
-            case 2: fretColor = color.RGBA{R: 255, G: 255, B: 0, A: 255} // Yellow
-            case 3: fretColor = color.RGBA{R: 0, G: 0, B: 255, A: 255} // Blue
-            case 4: fretColor = color.RGBA{R: 255, G: 165, B: 0, A: 255} // Orange
-            case 5: fretColor = color.RGBA{R: 128, G: 0, B: 128, A: 255} // Purple
+            case 0: fretColor = color.NRGBA{R: 0, G: 255, B: 0, A: 255} // Green
+            case 1: fretColor = color.NRGBA{R: 255, G: 0, B: 0, A: 255} // Red
+            case 2: fretColor = color.NRGBA{R: 255, G: 255, B: 0, A: 255} // Yellow
+            case 3: fretColor = color.NRGBA{R: 0, G: 0, B: 255, A: 255} // Blue
+            case 4: fretColor = color.NRGBA{R: 255, G: 165, B: 0, A: 255} // Orange
+            case 5: fretColor = color.NRGBA{R: 128, G: 0, B: 128, A: 255} // Purple
+        }
+
+        transparent := fretColor
+        transparent.A = 100
+        vector.FillCircle(screen, float32(playLine), float32(yFret), 20, transparent, false)
+
+        if !fret.Press.IsZero() {
+            vector.StrokeCircle(screen, float32(playLine), float32(yFret), 21, 2, fretColor, false)
         }
 
         for _, note := range fret.Notes {
@@ -113,11 +151,10 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
             end := int64((note.End - delta) / time.Millisecond) / 10
 
             for t := start; t <= end; t += 10 {
-                if t < 800 && t > -100 {
-                    x := 20 + t
-                    y := 100 + i * 60
+                if t < ScreenWidth + 20 && t > -100 {
+                    x := playLine + int(t)
 
-                    vector.FillCircle(screen, float32(x), float32(y), 15, fretColor, true)
+                    vector.FillCircle(screen, float32(x), float32(yFret), 15, fretColor, true)
                 }
             }
         }
@@ -149,7 +186,7 @@ func main() {
 
     log.Printf("Initializing")
 
-    ebiten.SetWindowSize(800, 600)
+    ebiten.SetWindowSize(ScreenWidth, ScreenHeight)
     ebiten.SetWindowTitle("Rhythm Game")
 
     engine := MakeEngine("notes.mid")
