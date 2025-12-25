@@ -40,8 +40,30 @@ type Engine struct {
     StartTime time.Time
     AudioContext *audio.Context
 
+    CleanupFuncs []func()
+
     Song *audio.Player
+    Guitar *audio.Player
     DoSong sync.Once
+}
+
+func loadOgg(audioContext *audio.Context, songPath string) (*audio.Player, func(), error) {
+    songDataReader, err := os.Open(songPath)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), songDataReader)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    songPlayer, err := audioContext.NewPlayer(songReader)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    return songPlayer, func(){ songDataReader.Close() }, nil
 }
 
 func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
@@ -76,22 +98,23 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
 
     songPath := filepath.Join(songDirectory, "song.ogg")
 
-    songDataReader, err := os.Open(songPath)
-    if err != nil {
-        return nil, fmt.Errorf("Unable to open ogg file '%v': %v", songPath, err)
-    }
-
-    songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), songDataReader)
-    if err != nil {
-        return nil, fmt.Errorf("Unable to decode ogg file '%v': %v", songPath, err)
-    }
-
-    songPlayer, err := audioContext.NewPlayer(songReader)
+    songPlayer, cleanup, err := loadOgg(audioContext, songPath)
     if err != nil {
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", songPath, err)
     }
 
+    engine.CleanupFuncs = append(engine.CleanupFuncs, cleanup)
+
+    guitarPath := filepath.Join(songDirectory, "guitar.ogg")
+    guitarPlayer, cleanup, err := loadOgg(audioContext, guitarPath)
+    if err != nil {
+        return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", guitarPath, err)
+    }
+
+    engine.CleanupFuncs = append(engine.CleanupFuncs, cleanup)
+
     engine.Song = songPlayer
+    engine.Guitar = guitarPlayer
 
     notesPath := filepath.Join(songDirectory, "notes.mid")
 
@@ -104,7 +127,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         var channel, key, velocity uint8
         if event.Message.GetNoteOn(&channel, &key, &velocity) {
             if int(key) >= low && int(key) <= high {
-                log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
+                // log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
                 if velocity > 0 {
                     useFret := int(key) - low
                     fret := &engine.Frets[useFret]
@@ -124,6 +147,12 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
     })
 
     return engine, nil
+}
+
+func (engine *Engine) Close() {
+    for _, cleanup := range engine.CleanupFuncs {
+        cleanup()
+    }
 }
 
 func (engine *Engine) Update() error {
@@ -186,8 +215,8 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
         }
 
         for _, note := range fret.Notes {
-            start := int64((note.Start - delta) / time.Millisecond) / 10
-            end := int64((note.End - delta) / time.Millisecond) / 10
+            start := int64((note.Start - delta) / time.Millisecond) / 8
+            end := int64((note.End - delta) / time.Millisecond) / 8
 
             for t := start; t <= end; t += 10 {
                 if t < ScreenWidth + 20 && t > -100 {
@@ -235,8 +264,12 @@ func main() {
     if err != nil {
         log.Fatalf("Failed to make engine: %v", err)
     }
+    defer engine.Close()
 
-    ebiten.RunGame(engine)
+    err = ebiten.RunGame(engine)
+    if err != nil && err != ebiten.Termination {
+        log.Fatalf("Error running game: %v", err)
+    }
 
     log.Printf("Bye")
 }
