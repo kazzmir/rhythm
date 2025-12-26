@@ -400,11 +400,9 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
                     vector.FillRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), fretColor, true)
 
-                    /*
                     if note.State == NoteStateHit {
-                        vector.StrokeRect(screen, float32(x), float32(yFret - thickness / 2), float32(end - start), float32(thickness), 2, white, false)
+                        vector.StrokeRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), 2, white, false)
                     }
-                    */
                 }
 
                 return true
