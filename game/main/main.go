@@ -297,7 +297,113 @@ func (engine *Engine) Update() error {
     return nil
 }
 
+// vertical layout
 func (engine *Engine) Draw(screen *ebiten.Image) {
+    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
+
+    playLine := ScreenHeight - 100
+
+    white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+    grey := color.NRGBA{R: 100, G: 100, B: 100, A: 255}
+
+    xStart := 50
+    xWidth := 500
+
+    vector.StrokeLine(screen, float32(xStart), float32(playLine), float32(xStart + xWidth), float32(playLine), 5, white, true)
+
+    const noteSpeed = 5
+
+    thresholdLow := int64(NoteThresholdLow / time.Millisecond) / noteSpeed
+    thresholdHigh := int64(NoteThresholdHigh / time.Millisecond) / noteSpeed
+
+    vector.FillRect(screen, float32(xStart), float32(playLine - int(thresholdHigh)), float32(xWidth), float32(int(thresholdHigh - thresholdLow)), color.NRGBA{R: 100, G: 100, B: 100, A: 100}, true)
+
+    const noteSize = 30
+
+    delta := time.Since(engine.StartTime)
+    for i := range engine.Frets {
+        fret := &engine.Frets[i]
+
+        xFret := 100 + i * 100
+
+        vector.StrokeLine(screen, float32(xFret), 0, float32(xFret), float32(ScreenHeight), 3, white, true)
+
+        fretColor := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+        switch i {
+            case 0: fretColor = color.NRGBA{R: 0, G: 255, B: 0, A: 255} // Green
+            case 1: fretColor = color.NRGBA{R: 255, G: 0, B: 0, A: 255} // Red
+            case 2: fretColor = color.NRGBA{R: 255, G: 255, B: 0, A: 255} // Yellow
+            case 3: fretColor = color.NRGBA{R: 0, G: 0, B: 255, A: 255} // Blue
+            case 4: fretColor = color.NRGBA{R: 255, G: 165, B: 0, A: 255} // Orange
+            case 5: fretColor = color.NRGBA{R: 128, G: 0, B: 128, A: 255} // Purple
+        }
+
+        transparent := fretColor
+        transparent.A = 100
+        vector.FillCircle(screen, float32(xFret), float32(playLine), noteSize, transparent, false)
+
+        if !fret.Press.IsZero() {
+            vector.StrokeCircle(screen, float32(xFret), float32(playLine), noteSize + 1, 2, white, false)
+        }
+
+        renderNote := func(note *Note) bool {
+            start := -int64((note.Start - delta) / time.Millisecond) / noteSpeed + int64(playLine)
+            end := -int64((note.End - delta) / time.Millisecond) / noteSpeed + int64(playLine)
+
+            if -end > ScreenHeight + 100 {
+                return false
+            }
+
+            if (start < ScreenHeight + 20 && start > -100) || (end < ScreenHeight + 20 && end > -100) {
+                y := int(start)
+
+                vector.FillCircle(screen, float32(xFret), float32(y), noteSize, fretColor, true)
+                if note.State == NoteStateHit {
+                    vector.StrokeCircle(screen, float32(xFret), float32(y), noteSize + 1, 2, white, false)
+                } else if note.State == NoteStateMissed {
+                    vector.StrokeCircle(screen, float32(xFret), float32(y), noteSize + 1, 2, grey, false)
+                }
+
+                if -(end - start) > 200 / noteSpeed {
+                    thickness := 10
+
+                    x1 := xFret - thickness / 2
+                    y1 := end
+
+                    vector.FillRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), fretColor, true)
+
+                    /*
+                    if note.State == NoteStateHit {
+                        vector.StrokeRect(screen, float32(x), float32(yFret - thickness / 2), float32(end - start), float32(thickness), 2, white, false)
+                    }
+                    */
+                }
+
+                return true
+            }
+
+            return false
+        }
+
+        for i := fret.StartNote - 1; i >= 0 && i < len(fret.Notes); i-- {
+            note := &fret.Notes[i]
+            if !renderNote(note) {
+                break
+            }
+        }
+
+        for i := fret.StartNote; i < len(fret.Notes); i++ {
+            note := &fret.Notes[i]
+            if !renderNote(note) {
+                break
+            }
+        }
+
+    }
+}
+
+// horizontal layout
+func (engine *Engine) Draw2(screen *ebiten.Image) {
 
     ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
 
