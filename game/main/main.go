@@ -51,51 +51,133 @@ type Fret struct {
     Key ebiten.Key
 }
 
-type Engine struct {
+type Song struct {
     Frets []Fret
     StartTime time.Time
-    AudioContext *audio.Context
-
     CleanupFuncs []func()
 
     Song *audio.Player
     Guitar *audio.Player
     DoSong sync.Once
-
     NotesHit int
     NotesMissed int
 }
 
-func loadOgg(audioContext *audio.Context, songPath string) (*audio.Player, func(), error) {
-    songDataReader, err := os.Open(songPath)
-    if err != nil {
-        return nil, nil, err
+func (song *Song) Close() {
+    for _, cleanup := range song.CleanupFuncs {
+        cleanup()
     }
-
-    songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), songDataReader)
-    if err != nil {
-        return nil, nil, err
-    }
-
-    songPlayer, err := audioContext.NewPlayer(songReader)
-    if err != nil {
-        return nil, nil, err
-    }
-
-    return songPlayer, func(){ songDataReader.Close() }, nil
 }
 
-func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
-    engine := &Engine{
-        Frets: make([]Fret, 5),
-        AudioContext: audioContext,
+func (song *Song) Update() {
+    song.DoSong.Do(func(){
+        song.Song.Play()
+        // engine.Guitar.Play()
+    })
+
+    if song.StartTime.IsZero() {
+        song.StartTime = time.Now()
     }
 
-    engine.Frets[0].Key = ebiten.Key1
-    engine.Frets[1].Key = ebiten.Key2
-    engine.Frets[2].Key = ebiten.Key3
-    engine.Frets[3].Key = ebiten.Key4
-    engine.Frets[4].Key = ebiten.Key5
+    for i := range song.Frets {
+        fret := &song.Frets[i]
+        if inpututil.IsKeyJustPressed(fret.Key) {
+            fret.Press = time.Now()
+        } else if inpututil.IsKeyJustReleased(fret.Key) {
+            fret.Press = time.Time{}
+        }
+    }
+
+    playGuitar := false
+    stopGuitar := false
+    changeGuitar := false
+
+    delta := time.Since(song.StartTime)
+    for i := range song.Frets {
+        /*
+        if i == 1 {
+            break
+        }
+        */
+
+        fret := &song.Frets[i]
+
+        if fret.StartNote < len(fret.Notes) {
+            for fret.StartNote < len(fret.Notes) && fret.Notes[fret.StartNote].End < delta + NoteThresholdLow {
+
+                if fret.Notes[fret.StartNote].State == NoteStatePending {
+                    fret.Notes[fret.StartNote].State = NoteStateMissed
+                    song.NotesMissed += 1
+                }
+
+                fret.StartNote += 1
+            }
+        }
+
+        pressed := inpututil.IsKeyJustPressed(fret.Key)
+
+        // check if we are pressing the key for the current note
+        for i := fret.StartNote; i < len(fret.Notes); i++ {
+            note := &fret.Notes[i]
+            noteDiff := note.Start - delta
+
+            if noteDiff > NoteThresholdHigh {
+                break
+            }
+
+            if note.State == NoteStatePending {
+                if noteDiff < NoteThresholdLow {
+                    note.State = NoteStateMissed
+                    song.NotesMissed += 1
+                    stopGuitar = true
+                    changeGuitar = true
+                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && pressed {
+
+                    note.State = NoteStateHit
+                    song.NotesHit += 1
+                    playGuitar = true
+                    changeGuitar = true
+
+                    /*
+                    keyDiff := delta - fret.Press.Sub(engine.StartTime)
+                    log.Printf("Key diff: %v", keyDiff)
+                    if keyDiff >= NoteThresholdLow && keyDiff <= NoteThresholdHigh {
+                        note.State = NoteStateHit
+                        engine.NotesHit += 1
+                    } else {
+                        note.State = NoteStateMissed
+                        engine.NotesMissed += 1
+                    }
+                    */
+                }
+            }
+        }
+
+    }
+
+    if changeGuitar {
+        if playGuitar && !stopGuitar {
+            if !song.Guitar.IsPlaying() {
+                song.Guitar.SetPosition(delta)
+                song.Guitar.Play()
+            }
+        } else {
+            song.Guitar.Pause()
+        }
+    }
+
+}
+
+func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) {
+    song := Song{
+        Frets: make([]Fret, 5),
+    }
+
+    song.Frets[0].Key = ebiten.Key1
+    song.Frets[1].Key = ebiten.Key2
+    song.Frets[2].Key = ebiten.Key3
+    song.Frets[3].Key = ebiten.Key4
+    song.Frets[4].Key = ebiten.Key5
     // engine.Frets[5].Key = ebiten.Key6
 
     difficulty := "easy"
@@ -122,7 +204,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", songPath, err)
     }
 
-    engine.CleanupFuncs = append(engine.CleanupFuncs, cleanup)
+    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
 
     guitarPath := filepath.Join(songDirectory, "guitar.ogg")
     guitarPlayer, cleanup, err := loadOgg(audioContext, guitarPath)
@@ -130,10 +212,10 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", guitarPath, err)
     }
 
-    engine.CleanupFuncs = append(engine.CleanupFuncs, cleanup)
+    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
 
-    engine.Song = songPlayer
-    engine.Guitar = guitarPlayer
+    song.Song = songPlayer
+    song.Guitar = guitarPlayer
 
     notesPath := filepath.Join(songDirectory, "notes.mid")
 
@@ -149,13 +231,13 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
                 // log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
                 if velocity > 0 {
                     useFret := int(key) - low
-                    fret := &engine.Frets[useFret]
+                    fret := &song.Frets[useFret]
                     fret.Notes = append(fret.Notes, Note{
                         Start: time.Microsecond * time.Duration(event.AbsMicroSeconds),
                     })
                 } else {
                     useFret := int(key) - low
-                    fret := &engine.Frets[useFret]
+                    fret := &song.Frets[useFret]
                     if len(fret.Notes) > 0 {
                         lastNote := &fret.Notes[len(fret.Notes)-1]
                         lastNote.End = time.Microsecond * time.Duration(event.AbsMicroSeconds)
@@ -165,12 +247,51 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         }
     })
 
+    return &song, nil
+}
+
+type Engine struct {
+    AudioContext *audio.Context
+    CurrentSong *Song
+}
+
+func loadOgg(audioContext *audio.Context, songPath string) (*audio.Player, func(), error) {
+    songDataReader, err := os.Open(songPath)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), songDataReader)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    songPlayer, err := audioContext.NewPlayer(songReader)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    return songPlayer, func(){ songDataReader.Close() }, nil
+}
+
+func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
+    engine := &Engine{
+        AudioContext: audioContext,
+    }
+
+    song, err := MakeSong(audioContext, songDirectory)
+    if err != nil {
+        return nil, fmt.Errorf("Failed to make song: %v", err)
+    }
+
+    engine.CurrentSong = song
+
     return engine, nil
 }
 
 func (engine *Engine) Close() {
-    for _, cleanup := range engine.CleanupFuncs {
-        cleanup()
+    if engine.CurrentSong != nil {
+        engine.CurrentSong.Close()
     }
 }
 
@@ -188,23 +309,6 @@ func (engine *Engine) TakeScreenshot() {
 }
 
 func (engine *Engine) Update() error {
-    engine.DoSong.Do(func(){
-        engine.Song.Play()
-        // engine.Guitar.Play()
-    })
-
-    if engine.StartTime.IsZero() {
-        engine.StartTime = time.Now()
-    }
-
-    for i := range engine.Frets {
-        fret := &engine.Frets[i]
-        if inpututil.IsKeyJustPressed(fret.Key) {
-            fret.Press = time.Now()
-        } else if inpututil.IsKeyJustReleased(fret.Key) {
-            fret.Press = time.Time{}
-        }
-    }
 
     keys := inpututil.AppendJustPressedKeys(nil)
     for _, key := range keys {
@@ -216,83 +320,7 @@ func (engine *Engine) Update() error {
         }
     }
 
-    playGuitar := false
-    stopGuitar := false
-    changeGuitar := false
-
-    delta := time.Since(engine.StartTime)
-    for i := range engine.Frets {
-        /*
-        if i == 1 {
-            break
-        }
-        */
-
-        fret := &engine.Frets[i]
-
-        if fret.StartNote < len(fret.Notes) {
-            for fret.StartNote < len(fret.Notes) && fret.Notes[fret.StartNote].End < delta + NoteThresholdLow {
-
-                if fret.Notes[fret.StartNote].State == NoteStatePending {
-                    fret.Notes[fret.StartNote].State = NoteStateMissed
-                    engine.NotesMissed += 1
-                }
-
-                fret.StartNote += 1
-            }
-        }
-
-        pressed := inpututil.IsKeyJustPressed(fret.Key)
-
-        // check if we are pressing the key for the current note
-        for i := fret.StartNote; i < len(fret.Notes); i++ {
-            note := &fret.Notes[i]
-            noteDiff := note.Start - delta
-
-            if noteDiff > NoteThresholdHigh {
-                break
-            }
-
-            if note.State == NoteStatePending {
-                if noteDiff < NoteThresholdLow {
-                    note.State = NoteStateMissed
-                    engine.NotesMissed += 1
-                    stopGuitar = true
-                    changeGuitar = true
-                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && pressed {
-
-                    note.State = NoteStateHit
-                    engine.NotesHit += 1
-                    playGuitar = true
-                    changeGuitar = true
-
-                    /*
-                    keyDiff := delta - fret.Press.Sub(engine.StartTime)
-                    log.Printf("Key diff: %v", keyDiff)
-                    if keyDiff >= NoteThresholdLow && keyDiff <= NoteThresholdHigh {
-                        note.State = NoteStateHit
-                        engine.NotesHit += 1
-                    } else {
-                        note.State = NoteStateMissed
-                        engine.NotesMissed += 1
-                    }
-                    */
-                }
-            }
-        }
-
-    }
-
-    if changeGuitar {
-        if playGuitar && !stopGuitar {
-            if !engine.Guitar.IsPlaying() {
-                engine.Guitar.SetPosition(delta)
-                engine.Guitar.Play()
-            }
-        } else {
-            engine.Guitar.Pause()
-        }
-    }
+    engine.CurrentSong.Update()
 
     return nil
 }
@@ -320,9 +348,9 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
     const noteSize = 30
 
-    delta := time.Since(engine.StartTime)
-    for i := range engine.Frets {
-        fret := &engine.Frets[i]
+    delta := time.Since(engine.CurrentSong.StartTime)
+    for i := range engine.CurrentSong.Frets {
+        fret := &engine.CurrentSong.Frets[i]
 
         xFret := 100 + i * 100
 
@@ -422,8 +450,8 @@ func (engine *Engine) Draw2(screen *ebiten.Image) {
 
     const noteSize = 30
 
-    delta := time.Since(engine.StartTime)
-    for i, fret := range engine.Frets {
+    delta := time.Since(engine.CurrentSong.StartTime)
+    for i, fret := range engine.CurrentSong.Frets {
 
         yFret := 100 + i * 100
 
@@ -501,8 +529,8 @@ func (engine *Engine) Draw2(screen *ebiten.Image) {
         }
     }
 
-    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Hit: %d", engine.NotesHit), 10, ScreenHeight - 40)
-    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Missed: %d", engine.NotesMissed), 10, ScreenHeight - 20)
+    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), 10, ScreenHeight - 40)
+    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), 10, ScreenHeight - 20)
 }
 
 func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
