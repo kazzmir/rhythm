@@ -99,6 +99,10 @@ func (song *Song) Update() {
     stopGuitar := false
     changeGuitar := false
 
+    forceMiss := false
+
+    var notesHit []*Note
+
     delta := time.Since(song.StartTime)
     for i := range song.Frets {
         /*
@@ -123,6 +127,8 @@ func (song *Song) Update() {
 
         pressed := inpututil.IsKeyJustPressed(fret.Key)
 
+        needKey := false
+
         // check if we are pressing the key for the current note
         for i := fret.StartNote; i < len(fret.Notes); i++ {
             note := &fret.Notes[i]
@@ -138,13 +144,13 @@ func (song *Song) Update() {
                     song.NotesMissed += 1
                     stopGuitar = true
                     changeGuitar = true
-                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && pressed {
+                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh {
+                    // user should have pressed the key here
+                    needKey = true
 
-                    note.State = NoteStateHit
-                    note.Sustain = true
-                    song.NotesHit += 1
-                    playGuitar = true
-                    changeGuitar = true
+                    if pressed {
+                        notesHit = append(notesHit, note)
+                    }
 
                     /*
                     keyDiff := delta - fret.Press.Sub(engine.StartTime)
@@ -168,6 +174,27 @@ func (song *Song) Update() {
             }
         }
 
+        if !needKey && pressed {
+            forceMiss = true
+        }
+    }
+
+    if forceMiss {
+        for _, note := range notesHit {
+            note.State = NoteStateMissed
+            note.Sustain = false
+            song.NotesMissed += 1
+            playGuitar = false
+            changeGuitar = true
+        }
+    } else {
+        for _, note := range notesHit {
+            note.State = NoteStateHit
+            note.Sustain = true
+            song.NotesHit += 1
+            playGuitar = true
+            changeGuitar = true
+        }
     }
 
     if changeGuitar {
