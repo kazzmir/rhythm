@@ -43,6 +43,7 @@ type Note struct {
     Start time.Duration
     End time.Duration
     State NoteState
+    Sustain bool
 }
 
 type Fret struct {
@@ -140,6 +141,7 @@ func (song *Song) Update() {
                 } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && pressed {
 
                     note.State = NoteStateHit
+                    note.Sustain = true
                     song.NotesHit += 1
                     playGuitar = true
                     changeGuitar = true
@@ -155,6 +157,13 @@ func (song *Song) Update() {
                         engine.NotesMissed += 1
                     }
                     */
+                }
+            } else if note.State == NoteStateHit && note.Sustain {
+                // determine if the note has a sustained part and the keys are still held
+                if note.End > delta {
+                    if fret.Press.IsZero() {
+                        note.Sustain = false
+                    }
                 }
             }
         }
@@ -553,7 +562,7 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
                     vector.FillRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), fretColor, true)
 
-                    if note.State == NoteStateHit {
+                    if note.State == NoteStateHit && note.Sustain {
                         vector.StrokeRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), 2, white, false)
                     }
                 }
