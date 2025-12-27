@@ -4,7 +4,9 @@ import (
     "log"
     "time"
     "os"
+    "io/fs"
     "fmt"
+    "bufio"
     "image/color"
     "image/png"
     "path/filepath"
@@ -215,17 +217,19 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
             low = 100
     }
 
-    songPath := filepath.Join(songDirectory, "song.ogg")
+    dirfs := os.DirFS(songDirectory)
 
-    songPlayer, cleanup, err := loadOgg(audioContext, songPath)
+    // songPath := filepath.Join(songDirectory, "song.ogg")
+
+    songPlayer, cleanup, err := loadOgg(audioContext, dirfs, "song.ogg")
     if err != nil {
-        return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", songPath, err)
+        return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.ogg", err)
     }
 
     song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
 
     guitarPath := filepath.Join(songDirectory, "guitar.ogg")
-    guitarPlayer, cleanup, err := loadOgg(audioContext, guitarPath)
+    guitarPlayer, cleanup, err := loadOgg(audioContext, dirfs, "guitar.ogg")
     if err != nil {
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", guitarPath, err)
     }
@@ -235,23 +239,33 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     song.Song = songPlayer
     song.Guitar = guitarPlayer
 
-    notesPath := filepath.Join(songDirectory, "notes.mid")
+    // notesPath := filepath.Join(songDirectory, "notes.mid")
 
-    smf, err := smflib.ReadFile(notesPath)
+    notesReader, err := dirfs.Open("notes.mid")
     if err != nil {
-        return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", notesPath, err)
+        return nil, fmt.Errorf("Unable to open MIDI file '%v': %v", "notes.mid", err)
+    }
+
+    smf, err := smflib.ReadFrom(bufio.NewReader(notesReader))
+    if err != nil {
+        return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
 
     guitarTrack := findGuitarTrack(smf)
 
     if guitarTrack == -1 {
-        return nil, fmt.Errorf("Unable to find guitar track in MIDI file '%v'", notesPath)
+        return nil, fmt.Errorf("Unable to find guitar track in MIDI file '%v'", "notes.mid")
     }
 
     log.Printf("Using guitar track %d for notes", guitarTrack)
 
+    notesReader, err = dirfs.Open("notes.mid")
+    if err != nil {
+        return nil, fmt.Errorf("Unable to open MIDI file '%v': %v", "notes.mid", err)
+    }
+
     // FIXME: lame that we have to read the file again
-    reader := smflib.ReadTracks(notesPath, guitarTrack)
+    reader := smflib.ReadTracksFrom(bufio.NewReader(notesReader), guitarTrack)
     if reader.Error() != nil {
         return nil, reader.Error()
     }
@@ -287,8 +301,8 @@ type Engine struct {
     CurrentSong *Song
 }
 
-func loadOgg(audioContext *audio.Context, songPath string) (*audio.Player, func(), error) {
-    songDataReader, err := os.Open(songPath)
+func loadOgg(audioContext *audio.Context, system fs.FS, path string) (*audio.Player, func(), error) {
+    songDataReader, err := system.Open(path)
     if err != nil {
         return nil, nil, err
     }
