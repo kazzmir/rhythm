@@ -333,7 +333,7 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
 
 func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) {
     song := Song{
-        Frets: make([]Fret, 6),
+        Frets: make([]Fret, 5),
     }
 
     song.Frets[0].Key = ebiten.Key1
@@ -341,7 +341,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     song.Frets[2].Key = ebiten.Key3
     song.Frets[3].Key = ebiten.Key4
     song.Frets[4].Key = ebiten.Key5
-    song.Frets[5].Key = ebiten.Key6
+    // song.Frets[5].Key = ebiten.Key6
 
     difficulty := "easy"
 
@@ -454,17 +454,20 @@ func loadSongInfo(file fs.File) SongInfo {
 
 // notesData is assumed to be the contents of a MIDI file
 func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
+
+    // FIXME: dire straits sultans of swing uses keys higher than the normal range
+
     var low, high int
     switch difficulty {
         case "easy":
             low = 60
-            high = 65
+            high = 64
         case "medium":
             low = 72
             high = 76
         case "hard":
             high = 84
-            low = 90
+            low = 88
         case "expert":
             high = 96
             low = 100
@@ -488,24 +491,47 @@ func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
         return reader.Error()
     }
     reader.Do(func (event smflib.TrackEvent) {
-        // log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
+        // log.Printf("Tick: %d, Microseconds: %v, Track %v Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.TrackNo, event.Message)
         var channel, key, velocity uint8
         if event.Message.GetNoteOn(&channel, &key, &velocity) {
             if int(key) >= low && int(key) <= high {
                 // log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
                 if velocity > 0 {
                     useFret := int(key) - low
-                    fret := &song.Frets[useFret]
-                    fret.Notes = append(fret.Notes, Note{
-                        Start: time.Microsecond * time.Duration(event.AbsMicroSeconds),
-                    })
+                    if useFret >= 0 && useFret < len(song.Frets) {
+                        fret := &song.Frets[useFret]
+                        fret.Notes = append(fret.Notes, Note{
+                            Start: time.Microsecond * time.Duration(event.AbsMicroSeconds),
+                        })
+                    } else {
+                        log.Printf("Warning: Fret %d out of range for key %d", useFret, key)
+                    }
                 } else {
                     useFret := int(key) - low
+                    if useFret >= 0 && useFret < len(song.Frets) {
+                        fret := &song.Frets[useFret]
+                        if len(fret.Notes) > 0 {
+                            lastNote := &fret.Notes[len(fret.Notes)-1]
+                            lastNote.End = time.Microsecond * time.Duration(event.AbsMicroSeconds)
+                        }
+                    } else {
+                        log.Printf("Warning: Fret %d out of range for key %d", useFret, key)
+                    }
+                }
+            }
+        }
+        // some songs use NoteOff and others use NoteOn with a velocity of 0
+        if event.Message.GetNoteOff(&channel, &key, &velocity) {
+            if int(key) >= low && int(key) <= high {
+                useFret := int(key) - low
+                if useFret >= 0 && useFret < len(song.Frets) {
                     fret := &song.Frets[useFret]
                     if len(fret.Notes) > 0 {
                         lastNote := &fret.Notes[len(fret.Notes)-1]
                         lastNote.End = time.Microsecond * time.Duration(event.AbsMicroSeconds)
                     }
+                } else {
+                    log.Printf("Warning: Fret %d out of range for key %d", useFret, key)
                 }
             }
         }
@@ -950,6 +976,10 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
     }
 }
 
+func darkenColor(c color.Color, amount float32) color.Color {
+    return c
+}
+
 // vertical layout
 // func (engine *Engine) Draw3(screen *ebiten.Image) {
 func drawSong(screen *ebiten.Image, song *Song, font *text.GoTextFaceSource) {
@@ -1037,7 +1067,14 @@ func drawSong(screen *ebiten.Image, song *Song, font *text.GoTextFaceSource) {
             if (start < ScreenHeight + 20 && start > -100) || (end < ScreenHeight + 20 && end > -100) {
                 y := int(start)
 
-                vector.FillCircle(screen, float32(xFret), float32(y), noteSize, fretColor, true)
+                var useColor color.Color = fretColor
+
+                if note.State == NoteStateMissed {
+                    useColor = darkenColor(useColor, 0.5)
+                }
+
+                vector.FillCircle(screen, float32(xFret), float32(y), noteSize, useColor, true)
+
                 if note.State == NoteStateHit {
                     vector.StrokeCircle(screen, float32(xFret), float32(y), noteSize + 1, 2, white, false)
                 } else if note.State == NoteStateMissed {
@@ -1050,7 +1087,7 @@ func drawSong(screen *ebiten.Image, song *Song, font *text.GoTextFaceSource) {
                     x1 := xFret - thickness / 2
                     y1 := end
 
-                    vector.FillRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), fretColor, true)
+                    vector.FillRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), useColor, true)
 
                     if note.State == NoteStateHit && note.Sustain {
                         vector.StrokeRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), 2, white, false)
