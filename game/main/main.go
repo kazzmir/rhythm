@@ -674,6 +674,31 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
     return nil
 }
 
+func scanSongs() []string {
+    return []string{
+        "Queen - Killer Queen",
+        "CloneHeroSongs/Yes - Roundabout",
+    }
+}
+
+func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
+    return widget.NewButton(
+        widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
+        widget.ButtonOpts.Image(&widget.ButtonImage{
+            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 60, G: 120, B: 170, A: 255}),
+            Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 100, G: 160, B: 210, A: 255}),
+            Pressed: ui_image.NewNineSliceColor(color.NRGBA{R: 50, G: 110, B: 160, A: 255}),
+        }),
+        widget.ButtonOpts.Text(text, &tface, &widget.ButtonTextColor{
+            Idle: color.White,
+            Hover: color.White,
+            Pressed: color.White,
+            Disabled: color.Gray{Y: 128},
+        }),
+        widget.ButtonOpts.ClickedHandler(onClick),
+    )
+}
+
 func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
     chosen := false
 
@@ -681,13 +706,89 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         Source: engine.Font,
         Size: 24,
     }
+    var tface text.Face = face
 
     song := ""
+
+    rootContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewRowLayout(
+            widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+            widget.RowLayoutOpts.Spacing(12),
+            widget.RowLayoutOpts.Padding(&widget.Insets{Top: 10, Left: 10, Right: 10}),
+        )),
+    )
+
+    songPaths := scanSongs()
+
+    songList := widget.NewList(
+        widget.ListOpts.EntryFontFace(&tface),
+        widget.ListOpts.SliderParams(&widget.SliderParams{
+            TrackImage: &widget.SliderTrackImage{
+                Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 150, G: 150, B: 150, A: 255}),
+                Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 170, G: 170, B: 170, A: 255}),
+            },
+            HandleImage: &widget.ButtonImage{
+                Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 200, G: 200, B: 200, A: 255}),
+                Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 220, G: 220, B: 220, A: 255}),
+                Pressed: ui_image.NewNineSliceColor(color.NRGBA{R: 180, G: 180, B: 180, A: 255}),
+            },
+        }),
+        widget.ListOpts.HideHorizontalSlider(),
+        widget.ListOpts.ContainerOpts(widget.ContainerOpts.WidgetOpts(
+            widget.WidgetOpts.LayoutData(widget.RowLayoutData{
+                MaxHeight: 600,
+            }),
+            widget.WidgetOpts.MinSize(0, 200),
+        )),
+        widget.ListOpts.EntryLabelFunc(
+            func (e any) string {
+                return e.(string)
+            },
+        ),
+        widget.ListOpts.EntrySelectedHandler(func (args *widget.ListEntrySelectedEventArgs) {
+            entry := args.Entry.(string)
+            song = entry
+        }),
+        widget.ListOpts.EntryColor(&widget.ListEntryColor{
+            Selected: color.NRGBA{R: 100, G: 150, B: 200, A: 255},
+            Unselected: color.NRGBA{R: 50, G: 50, B: 50, A: 255},
+        }),
+        widget.ListOpts.ScrollContainerImage(&widget.ScrollContainerImage{
+            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 220, G: 220, B: 220, A: 255}),
+            Disabled: ui_image.NewNineSliceColor(color.NRGBA{R: 180, G: 180, B: 180, A: 255}),
+            Mask: ui_image.NewNineSliceColor(color.NRGBA{R: 32, G: 32, B: 32, A: 255}),
+        }),
+    )
+
+    for _, songPath := range songPaths {
+        songList.AddEntry(songPath)
+    }
+
+    playButton := makeButton("Play Selected Song", tface, func (args *widget.ButtonClickedEventArgs) {
+        if song != "" {
+            chosen = true
+        }
+    })
+
+    backButton := makeButton("Back", tface, func (args *widget.ButtonClickedEventArgs) {
+        song = ""
+        chosen = true
+    })
+
+    rootContainer.AddChild(songList)
+    rootContainer.AddChild(playButton)
+    rootContainer.AddChild(backButton)
+
+    ui := ebitenui.UI{
+        Container: rootContainer,
+    }
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         var textOptions text.DrawOptions
         textOptions.GeoM.Translate(10, 10)
         text.Draw(screen, "Select a song", face, &textOptions)
+
+        ui.Draw(screen)
     })
     defer engine.PopDrawer()
 
@@ -699,6 +800,8 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
                     return ""
             }
         }
+
+        ui.Update()
 
         if yield() != nil {
             return ""
@@ -725,25 +828,7 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
         )),
     )
 
-    makeButton := func(text string, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
-        return widget.NewButton(
-            widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
-            widget.ButtonOpts.Image(&widget.ButtonImage{
-                Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 60, G: 120, B: 170, A: 255}),
-                Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 100, G: 160, B: 210, A: 255}),
-                Pressed: ui_image.NewNineSliceColor(color.NRGBA{R: 50, G: 110, B: 160, A: 255}),
-            }),
-            widget.ButtonOpts.Text(text, &tface, &widget.ButtonTextColor{
-                Idle: color.White,
-                Hover: color.White,
-                Pressed: color.White,
-                Disabled: color.Gray{Y: 128},
-            }),
-            widget.ButtonOpts.ClickedHandler(onClick),
-        )
-    }
-
-    selectButton := makeButton("Select Song", func (args *widget.ButtonClickedEventArgs) {
+    selectButton := makeButton("Select Song", tface, func (args *widget.ButtonClickedEventArgs) {
         selectedSong := chooseSong(yield, engine)
         if selectedSong != "" {
             playSong(yield, engine, selectedSong)
@@ -753,7 +838,7 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
     // selectButton.Focus(true)
     rootContainer.AddChild(selectButton)
 
-    rootContainer.AddChild(makeButton("Quit", func (args *widget.ButtonClickedEventArgs) {
+    rootContainer.AddChild(makeButton("Quit", tface, func (args *widget.ButtonClickedEventArgs) {
         quit = true
     }))
 
