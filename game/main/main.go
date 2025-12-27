@@ -24,6 +24,7 @@ import (
     "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/vector"
     "github.com/hajimehoshi/ebiten/v2/ebitenutil"
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 const ScreenWidth = 1200
@@ -68,6 +69,13 @@ type Song struct {
     DoSong sync.Once
     NotesHit int
     NotesMissed int
+
+    Score int
+}
+
+// total notes seen so far
+func (song *Song) TotalNotes() int {
+    return song.NotesHit + song.NotesMissed
 }
 
 func (song *Song) Close() {
@@ -166,9 +174,11 @@ func (song *Song) Update() {
                 }
             } else if note.State == NoteStateHit && note.Sustain {
                 // determine if the note has a sustained part and the keys are still held
-                if note.End > delta {
+                if note.End > delta && note.End - note.Start > time.Millisecond * 200 {
                     if fret.Press.IsZero() {
                         note.Sustain = false
+                    } else {
+                        song.Score += 1
                     }
                 }
             }
@@ -194,6 +204,7 @@ func (song *Song) Update() {
             song.NotesHit += 1
             playGuitar = true
             changeGuitar = true
+            song.Score += 5
         }
     }
 
@@ -210,7 +221,6 @@ func (song *Song) Update() {
             song.Guitar.Pause()
         }
     }
-
 }
 
 // returns the index of the guitar track, or -1 if not found
@@ -440,6 +450,7 @@ func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
 type Engine struct {
     AudioContext *audio.Context
     CurrentSong *Song
+    Font *text.GoTextFaceSource
 }
 
 func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, func(), error) {
@@ -464,8 +475,14 @@ func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
 }
 
 func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
+    font, err := LoadFont()
+    if err != nil {
+        return nil, fmt.Errorf("Failed to load font: %v", err)
+    }
+
     engine := &Engine{
         AudioContext: audioContext,
+        Font: font,
     }
 
     song, err := MakeSong(audioContext, songDirectory)
@@ -516,7 +533,26 @@ func (engine *Engine) Update() error {
 
 // vertical layout
 func (engine *Engine) Draw(screen *ebiten.Image) {
-    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
+    // ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
+
+    face := &text.GoTextFace{
+        Source: engine.Font,
+        Size: 24,
+    }
+
+    var textOptions text.DrawOptions
+    textOptions.GeoM.Translate(700, 100)
+    text.Draw(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    percent := 0
+    if engine.CurrentSong.TotalNotes() > 0 {
+        percent = engine.CurrentSong.NotesHit * 100 / engine.CurrentSong.TotalNotes()
+    }
+    text.Draw(screen, fmt.Sprintf("Notes: %d%%", percent), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Score: %d", engine.CurrentSong.Score), face, &textOptions)
 
     playLine := ScreenHeight - 100
 
