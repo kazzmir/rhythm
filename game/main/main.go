@@ -43,6 +43,7 @@ type Note struct {
     Start time.Duration
     End time.Duration
     State NoteState
+    Sustain bool
 }
 
 type Fret struct {
@@ -98,6 +99,10 @@ func (song *Song) Update() {
     stopGuitar := false
     changeGuitar := false
 
+    forceMiss := false
+
+    var notesHit []*Note
+
     delta := time.Since(song.StartTime)
     for i := range song.Frets {
         /*
@@ -122,6 +127,8 @@ func (song *Song) Update() {
 
         pressed := inpututil.IsKeyJustPressed(fret.Key)
 
+        needKey := false
+
         // check if we are pressing the key for the current note
         for i := fret.StartNote; i < len(fret.Notes); i++ {
             note := &fret.Notes[i]
@@ -137,12 +144,13 @@ func (song *Song) Update() {
                     song.NotesMissed += 1
                     stopGuitar = true
                     changeGuitar = true
-                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh && pressed {
+                } else if noteDiff >= NoteThresholdLow && noteDiff <= NoteThresholdHigh {
+                    // user should have pressed the key here
+                    needKey = true
 
-                    note.State = NoteStateHit
-                    song.NotesHit += 1
-                    playGuitar = true
-                    changeGuitar = true
+                    if pressed {
+                        notesHit = append(notesHit, note)
+                    }
 
                     /*
                     keyDiff := delta - fret.Press.Sub(engine.StartTime)
@@ -156,9 +164,37 @@ func (song *Song) Update() {
                     }
                     */
                 }
+            } else if note.State == NoteStateHit && note.Sustain {
+                // determine if the note has a sustained part and the keys are still held
+                if note.End > delta {
+                    if fret.Press.IsZero() {
+                        note.Sustain = false
+                    }
+                }
             }
         }
 
+        if !needKey && pressed {
+            forceMiss = true
+        }
+    }
+
+    if forceMiss {
+        for _, note := range notesHit {
+            note.State = NoteStateMissed
+            note.Sustain = false
+            song.NotesMissed += 1
+            playGuitar = false
+            changeGuitar = true
+        }
+    } else {
+        for _, note := range notesHit {
+            note.State = NoteStateHit
+            note.Sustain = true
+            song.NotesHit += 1
+            playGuitar = true
+            changeGuitar = true
+        }
     }
 
     if changeGuitar {
@@ -269,21 +305,6 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     // engine.Frets[5].Key = ebiten.Key6
 
     difficulty := "easy"
-    var low, high int
-    switch difficulty {
-        case "easy":
-            low = 60
-            high = 65
-        case "medium":
-            low = 72
-            high = 76
-        case "hard":
-            high = 84
-            low = 90
-        case "expert":
-            high = 96
-            low = 100
-    }
 
     var basefs fs.FS
 
@@ -295,12 +316,6 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
 
         defer zipFile.Close()
 
-        /*
-        song.CleanupFuncs = append(song.CleanupFuncs, func(){
-            zipFile.Close()
-        })
-        */
-
         zipper, err := zip.NewReader(zipFile, getFileSize(zipFile))
         if err != nil {
             return nil, fmt.Errorf("Unable to read song zip file '%v': %v", songDirectory, err)
@@ -310,8 +325,6 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     } else {
         basefs = os.DirFS(songDirectory)
     }
-
-    // FIXME: search for song.ogg within the FS by doing an fs walk
 
     songFile, err := findFile(basefs, "song.ogg")
     if err != nil {
@@ -354,23 +367,48 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
 
+    err = song.ReadNotes(notesData, difficulty)
+    if err != nil {
+        return nil, err
+    }
+
+    return &song, nil
+}
+
+// notesData is assumed to be the contents of a MIDI file
+func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
+    var low, high int
+    switch difficulty {
+        case "easy":
+            low = 60
+            high = 65
+        case "medium":
+            low = 72
+            high = 76
+        case "hard":
+            high = 84
+            low = 90
+        case "expert":
+            high = 96
+            low = 100
+    }
+
     smf, err := smflib.ReadFrom(bytes.NewReader(notesData))
     if err != nil {
-        return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
+        return fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
 
     guitarTrack := findGuitarTrack(smf)
 
     if guitarTrack == -1 {
-        return nil, fmt.Errorf("Unable to find guitar track in MIDI file '%v'", "notes.mid")
+        return fmt.Errorf("Unable to find guitar track in MIDI file '%v'", "notes.mid")
     }
 
     log.Printf("Using guitar track %d for notes", guitarTrack)
 
-    // FIXME: lame that we have to read the file again
     reader := smflib.ReadTracksFrom(bytes.NewReader(notesData), guitarTrack)
     if reader.Error() != nil {
-        return nil, reader.Error()
+        return reader.Error()
     }
     reader.Do(func (event smflib.TrackEvent) {
         // log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
@@ -396,7 +434,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         }
     })
 
-    return &song, nil
+    return nil
 }
 
 type Engine struct {
@@ -551,7 +589,7 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
                     vector.FillRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), fretColor, true)
 
-                    if note.State == NoteStateHit {
+                    if note.State == NoteStateHit && note.Sustain {
                         vector.StrokeRect(screen, float32(x1), float32(y1), float32(thickness), float32(-(end - start)), 2, white, false)
                     }
                 }
