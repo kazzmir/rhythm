@@ -4,12 +4,15 @@ import (
     "log"
     "time"
     "os"
+    "io"
     "io/fs"
     "fmt"
     "bufio"
+    "archive/zip"
     "image/color"
     "image/png"
     "path/filepath"
+    "bytes"
     "sync"
     "strings"
 
@@ -161,7 +164,10 @@ func (song *Song) Update() {
     if changeGuitar {
         if playGuitar && !stopGuitar {
             if !song.Guitar.IsPlaying() {
-                song.Guitar.SetPosition(delta)
+                err := song.Guitar.SetPosition(delta)
+                if err != nil {
+                    log.Printf("Failed to set guitar position: %v", err)
+                }
                 song.Guitar.Play()
             }
         } else {
@@ -186,6 +192,31 @@ func findGuitarTrack(smf *smflib.SMF) int {
     }
 
     return -1
+}
+
+func isZip(path string) bool {
+    file, err := os.Open(path)
+    if err != nil {
+        return false
+    }
+
+    defer file.Close()
+
+    buffer := make([]byte, 4)
+    _, err = file.Read(buffer)
+    if err != nil {
+        return false
+    }
+
+    return string(buffer) == "PK\x03\x04"
+}
+
+func getFileSize(file *os.File) int64 {
+    info, err := file.Stat()
+    if err != nil {
+        return 0
+    }
+    return info.Size()
 }
 
 func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) {
@@ -217,11 +248,35 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
             low = 100
     }
 
-    dirfs := os.DirFS(songDirectory)
+    var basefs fs.FS
+
+    if isZip(songDirectory) {
+        zipFile, err := os.Open(songDirectory)
+        if err != nil {
+            return nil, fmt.Errorf("Unable to open song zip file '%v': %v", songDirectory, err)
+        }
+
+        defer zipFile.Close()
+
+        /*
+        song.CleanupFuncs = append(song.CleanupFuncs, func(){
+            zipFile.Close()
+        })
+        */
+
+        zipper, err := zip.NewReader(zipFile, getFileSize(zipFile))
+        if err != nil {
+            return nil, fmt.Errorf("Unable to read song zip file '%v': %v", songDirectory, err)
+        }
+
+        basefs = zipper
+    } else {
+        basefs = os.DirFS(songDirectory)
+    }
 
     // songPath := filepath.Join(songDirectory, "song.ogg")
 
-    songPlayer, cleanup, err := loadOgg(audioContext, dirfs, "song.ogg")
+    songPlayer, cleanup, err := loadOgg(audioContext, basefs, "song.ogg")
     if err != nil {
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.ogg", err)
     }
@@ -229,7 +284,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
 
     guitarPath := filepath.Join(songDirectory, "guitar.ogg")
-    guitarPlayer, cleanup, err := loadOgg(audioContext, dirfs, "guitar.ogg")
+    guitarPlayer, cleanup, err := loadOgg(audioContext, basefs, "guitar.ogg")
     if err != nil {
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", guitarPath, err)
     }
@@ -241,7 +296,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
 
     // notesPath := filepath.Join(songDirectory, "notes.mid")
 
-    notesReader, err := dirfs.Open("notes.mid")
+    notesReader, err := basefs.Open("notes.mid")
     if err != nil {
         return nil, fmt.Errorf("Unable to open MIDI file '%v': %v", "notes.mid", err)
     }
@@ -259,7 +314,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
 
     log.Printf("Using guitar track %d for notes", guitarTrack)
 
-    notesReader, err = dirfs.Open("notes.mid")
+    notesReader, err = basefs.Open("notes.mid")
     if err != nil {
         return nil, fmt.Errorf("Unable to open MIDI file '%v': %v", "notes.mid", err)
     }
@@ -307,7 +362,14 @@ func loadOgg(audioContext *audio.Context, system fs.FS, path string) (*audio.Pla
         return nil, nil, err
     }
 
-    songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), songDataReader)
+    defer songDataReader.Close()
+
+    allData, err := io.ReadAll(bufio.NewReader(songDataReader))
+    if err != nil {
+        return nil, nil, err
+    }
+
+    songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), bytes.NewReader(allData))
     if err != nil {
         return nil, nil, err
     }
@@ -317,7 +379,9 @@ func loadOgg(audioContext *audio.Context, system fs.FS, path string) (*audio.Pla
         return nil, nil, err
     }
 
-    return songPlayer, func(){ songDataReader.Close() }, nil
+    log.Printf("Loaded OGG file '%s' length %d", path, len(allData))
+
+    return songPlayer, func(){}, nil
 }
 
 func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
@@ -600,6 +664,12 @@ func main() {
 
     log.SetFlags(log.Ldate | log.Lshortfile | log.Lmicroseconds)
 
+    if len(os.Args) < 2 {
+        log.Fatalf("Usage: %s <song directory or zip file>", os.Args[0])
+    }
+
+    path := os.Args[1]
+
     log.Printf("Initializing")
 
     ebiten.SetTPS(120)
@@ -608,7 +678,7 @@ func main() {
 
     audioContext := audio.NewContext(44100)
 
-    engine, err := MakeEngine(audioContext, "Queen - Killer Queen")
+    engine, err := MakeEngine(audioContext, path)
 
     if err != nil {
         log.Fatalf("Failed to make engine: %v", err)
