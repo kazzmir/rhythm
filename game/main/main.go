@@ -3,6 +3,8 @@ package main
 import (
     "log"
     "time"
+    "slices"
+    "cmp"
     "os"
     "io"
     "io/fs"
@@ -15,6 +17,9 @@ import (
     "bytes"
     "sync"
     "strings"
+    "errors"
+
+    "github.com/kazzmir/rhythm/lib/coroutine"
 
     smflib "gitlab.com/gomidi/midi/v2/smf"
 
@@ -23,8 +28,12 @@ import (
     "github.com/hajimehoshi/ebiten/v2/audio/vorbis"
     "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/vector"
-    "github.com/hajimehoshi/ebiten/v2/ebitenutil"
+    // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
+
+    "github.com/ebitenui/ebitenui"
+    "github.com/ebitenui/ebitenui/widget"
+    ui_image "github.com/ebitenui/ebitenui/image"
 )
 
 const ScreenWidth = 1200
@@ -85,12 +94,20 @@ type Song struct {
     SongInfo SongInfo
 }
 
+func (song *Song) Finished() bool {
+    delta := time.Since(song.StartTime)
+    return delta >= song.SongLength + time.Second * 2
+}
+
 // total notes seen so far
 func (song *Song) TotalNotes() int {
     return song.NotesHit + song.NotesMissed
 }
 
 func (song *Song) Close() {
+    song.Song.Pause()
+    song.Guitar.Pause()
+
     for _, cleanup := range song.CleanupFuncs {
         cleanup()
     }
@@ -316,7 +333,7 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
 
 func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) {
     song := Song{
-        Frets: make([]Fret, 5),
+        Frets: make([]Fret, 6),
     }
 
     song.Frets[0].Key = ebiten.Key1
@@ -324,7 +341,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     song.Frets[2].Key = ebiten.Key3
     song.Frets[3].Key = ebiten.Key4
     song.Frets[4].Key = ebiten.Key5
-    // engine.Frets[5].Key = ebiten.Key6
+    song.Frets[5].Key = ebiten.Key6
 
     difficulty := "easy"
 
@@ -499,8 +516,22 @@ func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
 
 type Engine struct {
     AudioContext *audio.Context
-    CurrentSong *Song
+    // CurrentSong *Song
     Font *text.GoTextFaceSource
+
+    Drawers []func(screen *ebiten.Image)
+
+    Coroutine *coroutine.Coroutine
+}
+
+func (engine *Engine) PushDrawer(drawer func(screen *ebiten.Image)) {
+    engine.Drawers = append(engine.Drawers, drawer)
+}
+
+func (engine *Engine) PopDrawer() {
+    if len(engine.Drawers) > 0 {
+        engine.Drawers = engine.Drawers[:len(engine.Drawers)-1]
+    }
 }
 
 func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
@@ -534,25 +565,39 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         return nil, fmt.Errorf("Failed to load font: %v", err)
     }
 
-    engine := &Engine{
+    var engine *Engine
+
+    engine = &Engine{
         AudioContext: audioContext,
         Font: font,
+        Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+            if songDirectory != "" {
+                err := playSong(yield, engine, songDirectory)
+                return err
+            }
+
+            return runMenu(engine, yield)
+        }),
     }
 
+    /*
     song, err := MakeSong(audioContext, songDirectory)
     if err != nil {
         return nil, fmt.Errorf("Failed to make song: %v", err)
     }
 
     engine.CurrentSong = song
+    */
 
     return engine, nil
 }
 
 func (engine *Engine) Close() {
+    /*
     if engine.CurrentSong != nil {
         engine.CurrentSong.Close()
     }
+    */
 }
 
 func (engine *Engine) TakeScreenshot() {
@@ -573,44 +618,365 @@ func (engine *Engine) Update() error {
     keys := inpututil.AppendJustPressedKeys(nil)
     for _, key := range keys {
         switch key {
+            /*
             case ebiten.KeyEscape, ebiten.KeyCapsLock:
                 return ebiten.Termination
+                */
             case ebiten.KeyF1:
                 engine.TakeScreenshot()
         }
     }
 
-    engine.CurrentSong.Update()
+    if ebiten.IsWindowBeingClosed() {
+        engine.Coroutine.Stop()
+    }
+
+    err := engine.Coroutine.Run()
+    if err != nil {
+        if errors.Is(err, coroutine.CoroutineFinished) || errors.Is(err, coroutine.CoroutineCancelled) {
+            return ebiten.Termination
+        }
+
+        return err
+    }
+
+    // engine.CurrentSong.Update()
 
     return nil
 }
 
-// vertical layout
-func (engine *Engine) Draw(screen *ebiten.Image) {
-    // ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
+func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error {
+    song, err := MakeSong(engine.AudioContext, songPath)
+    if err != nil {
+        return err
+    }
 
-    delta := time.Since(engine.CurrentSong.StartTime)
+    defer song.Close()
+
+    engine.PushDrawer(func(screen *ebiten.Image) {
+        drawSong(screen, song, engine.Font)
+    })
+    defer engine.PopDrawer()
+
+    song.Update()
+    for !song.Finished() {
+
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    yield()
+                    return nil
+            }
+        }
+
+        song.Update()
+        if yield() != nil {
+            break
+        }
+    }
+
+    log.Printf("Song finished! Notes hit: %d, Notes missed: %d", song.NotesHit, song.NotesMissed)
+
+    return nil
+}
+
+// true if the directory contains song.ogg, guitar.ogg, and notes.mid
+func isSongDirectory(path string) bool {
+    requiredFiles := make(map[string]bool)
+    requiredFiles["song.ogg"] = false
+    requiredFiles["guitar.ogg"] = false
+    requiredFiles["notes.mid"] = false
+    entries, err := os.ReadDir(path)
+    if err != nil {
+        return false
+    }
+
+    for _, entry := range entries {
+        if entry.IsDir() {
+            continue
+        }
+
+        name := strings.ToLower(entry.Name())
+        if _, ok := requiredFiles[name]; ok {
+            requiredFiles[name] = true
+        }
+    }
+
+    for _, found := range requiredFiles {
+        if !found {
+            return false
+        }
+    }
+
+    return true
+}
+
+func scanSongs() []string {
+
+    var paths []string
+
+    fs.WalkDir(os.DirFS("."), ".", func(path string, entry fs.DirEntry, err error) error {
+        if err != nil {
+            return err
+        }
+
+        if entry.IsDir() {
+            log.Printf("Checking directory: %s", path)
+            if isSongDirectory(path) {
+                paths = append(paths, path)
+            }
+            return nil
+        } else {
+            return nil
+        }
+    })
+
+    return paths
+
+    /*
+    return []string{
+        "Queen - Killer Queen",
+        "CloneHeroSongs/Yes - Roundabout",
+    }
+    */
+}
+
+func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
+    return widget.NewButton(
+        widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
+        widget.ButtonOpts.Image(&widget.ButtonImage{
+            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 60, G: 120, B: 170, A: 255}),
+            Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 100, G: 160, B: 210, A: 255}),
+            Pressed: ui_image.NewNineSliceColor(color.NRGBA{R: 50, G: 110, B: 160, A: 255}),
+        }),
+        widget.ButtonOpts.Text(text, &tface, &widget.ButtonTextColor{
+            Idle: color.White,
+            Hover: color.White,
+            Pressed: color.White,
+            Disabled: color.Gray{Y: 128},
+        }),
+        widget.ButtonOpts.ClickedHandler(onClick),
+    )
+}
+
+func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
+    chosen := false
 
     face := &text.GoTextFace{
         Source: engine.Font,
         Size: 24,
     }
+    var tface text.Face = face
+
+    song := ""
+
+    rootContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewRowLayout(
+            widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+            widget.RowLayoutOpts.Spacing(12),
+            widget.RowLayoutOpts.Padding(&widget.Insets{Top: 10, Left: 10, Right: 10}),
+        )),
+    )
+
+    songPaths := scanSongs()
+
+    songPaths = slices.SortedFunc(slices.Values(songPaths), func(a, b string) int {
+        ax := filepath.Base(strings.ToLower(a))
+        bx := filepath.Base(strings.ToLower(b))
+        return cmp.Compare(ax, bx)
+    })
+
+    songList := widget.NewList(
+        widget.ListOpts.EntryFontFace(&tface),
+        widget.ListOpts.SliderParams(&widget.SliderParams{
+            TrackImage: &widget.SliderTrackImage{
+                Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 150, G: 150, B: 150, A: 255}),
+                Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 170, G: 170, B: 170, A: 255}),
+            },
+            HandleImage: &widget.ButtonImage{
+                Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 200, G: 200, B: 200, A: 255}),
+                Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 220, G: 220, B: 220, A: 255}),
+                Pressed: ui_image.NewNineSliceColor(color.NRGBA{R: 180, G: 180, B: 180, A: 255}),
+            },
+        }),
+        widget.ListOpts.HideHorizontalSlider(),
+        widget.ListOpts.ContainerOpts(widget.ContainerOpts.WidgetOpts(
+            widget.WidgetOpts.LayoutData(widget.RowLayoutData{
+                MaxHeight: 600,
+            }),
+            widget.WidgetOpts.MinSize(0, 200),
+        )),
+        widget.ListOpts.EntryLabelFunc(
+            func (e any) string {
+                name := e.(string)
+                return filepath.Base(name)
+            },
+        ),
+        widget.ListOpts.EntrySelectedHandler(func (args *widget.ListEntrySelectedEventArgs) {
+            entry := args.Entry.(string)
+            song = entry
+        }),
+        widget.ListOpts.EntryColor(&widget.ListEntryColor{
+            Selected: color.NRGBA{R: 100, G: 150, B: 200, A: 255},
+            Unselected: color.NRGBA{R: 50, G: 50, B: 50, A: 255},
+        }),
+        widget.ListOpts.ScrollContainerImage(&widget.ScrollContainerImage{
+            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 220, G: 220, B: 220, A: 255}),
+            Disabled: ui_image.NewNineSliceColor(color.NRGBA{R: 180, G: 180, B: 180, A: 255}),
+            Mask: ui_image.NewNineSliceColor(color.NRGBA{R: 32, G: 32, B: 32, A: 255}),
+        }),
+    )
+
+    for _, songPath := range songPaths {
+        songList.AddEntry(songPath)
+    }
+
+    playButton := makeButton("Play Selected Song", tface, func (args *widget.ButtonClickedEventArgs) {
+        if song != "" {
+            chosen = true
+        }
+    })
+
+    backButton := makeButton("Back", tface, func (args *widget.ButtonClickedEventArgs) {
+        song = ""
+        chosen = true
+    })
+
+    rootContainer.AddChild(songList)
+    rootContainer.AddChild(playButton)
+    rootContainer.AddChild(backButton)
+
+    ui := ebitenui.UI{
+        Container: rootContainer,
+    }
+
+    engine.PushDrawer(func(screen *ebiten.Image) {
+        var textOptions text.DrawOptions
+        textOptions.GeoM.Translate(10, 10)
+        text.Draw(screen, "Select a song", face, &textOptions)
+
+        ui.Draw(screen)
+    })
+    defer engine.PopDrawer()
+
+    for !chosen {
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    return ""
+            }
+        }
+
+        ui.Update()
+
+        if yield() != nil {
+            return ""
+        }
+    }
+
+    return song
+}
+
+func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
+    quit := false
+
+    face := &text.GoTextFace{
+        Source: engine.Font,
+        Size: 24,
+    }
+    var tface text.Face = face
+
+    rootContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewRowLayout(
+            widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+            widget.RowLayoutOpts.Spacing(12),
+            widget.RowLayoutOpts.Padding(&widget.Insets{Top: 10, Left: 10, Right: 10}),
+        )),
+    )
+
+    selectButton := makeButton("Select Song", tface, func (args *widget.ButtonClickedEventArgs) {
+        selectedSong := chooseSong(yield, engine)
+        if selectedSong != "" {
+            playSong(yield, engine, selectedSong)
+        }
+    })
+
+    // selectButton.Focus(true)
+    rootContainer.AddChild(selectButton)
+
+    rootContainer.AddChild(makeButton("Quit", tface, func (args *widget.ButtonClickedEventArgs) {
+        quit = true
+    }))
+
+    ui := ebitenui.UI{
+        Container: rootContainer,
+    }
+
+    engine.PushDrawer(func(screen *ebiten.Image) {
+        ui.Draw(screen)
+    })
+    defer engine.PopDrawer()
+
+    song := "Queen - Killer Queen"
+
+    for !quit {
+
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    quit = true
+                case ebiten.KeySpace:
+                    playSong(yield, engine, song)
+            }
+        }
+
+        ui.Update()
+
+        if yield() != nil {
+            break
+        }
+    }
+
+    return nil
+}
+
+func (engine *Engine) Draw(screen *ebiten.Image) {
+    if len(engine.Drawers) > 0 {
+        drawer := engine.Drawers[len(engine.Drawers)-1]
+        drawer(screen)
+    }
+}
+
+// vertical layout
+// func (engine *Engine) Draw3(screen *ebiten.Image) {
+func drawSong(screen *ebiten.Image, song *Song, font *text.GoTextFaceSource) {
+    // ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
+
+    delta := time.Since(song.StartTime)
+
+    face := &text.GoTextFace{
+        Source: font,
+        Size: 24,
+    }
 
     var textOptions text.DrawOptions
     textOptions.GeoM.Translate(850, 100)
-    text.Draw(screen, fmt.Sprintf("Time: %v / %v", delta.Truncate(time.Second), engine.CurrentSong.SongLength.Truncate(time.Second)), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Time: %v / %v", delta.Truncate(time.Second), song.SongLength.Truncate(time.Second)), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
-    text.Draw(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Notes Hit: %d", song.NotesHit), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
-    text.Draw(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Notes Missed: %d", song.NotesMissed), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
     percent := 0
-    if engine.CurrentSong.TotalNotes() > 0 {
-        percent = engine.CurrentSong.NotesHit * 100 / engine.CurrentSong.TotalNotes()
+    if song.TotalNotes() > 0 {
+        percent = song.NotesHit * 100 / song.TotalNotes()
     }
     text.Draw(screen, fmt.Sprintf("Notes: %d%%", percent), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
-    text.Draw(screen, fmt.Sprintf("Score: %d", engine.CurrentSong.Score), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Score: %d", song.Score), face, &textOptions)
 
     playLine := ScreenHeight - 130
 
@@ -635,8 +1001,8 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
     const noteSize = 25
 
-    for i := range engine.CurrentSong.Frets {
-        fret := &engine.CurrentSong.Frets[i]
+    for i := range song.Frets {
+        fret := &song.Frets[i]
 
         xFret := 100 + highwayXStart + i * 100
 
@@ -713,9 +1079,9 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
     }
 
-    if delta < time.Second * 2 && engine.CurrentSong.SongInfo.Name != "" {
+    if delta < time.Second * 2 && song.SongInfo.Name != "" {
         face = &text.GoTextFace{
-            Source: engine.Font,
+            Source: font,
             Size: 30,
         }
 
@@ -732,13 +1098,14 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
         textOptions.GeoM.Reset()
         textOptions.GeoM.Translate(10, 60)
-        text.Draw(screen, fmt.Sprintf("Song: %s", engine.CurrentSong.SongInfo.Name), face, &textOptions)
+        text.Draw(screen, fmt.Sprintf("Song: %s", song.SongInfo.Name), face, &textOptions)
         textOptions.GeoM.Translate(0, 40)
-        text.Draw(screen, fmt.Sprintf("Artist: %s", engine.CurrentSong.SongInfo.Artist), face, &textOptions)
+        text.Draw(screen, fmt.Sprintf("Artist: %s", song.SongInfo.Artist), face, &textOptions)
     }
 }
 
 // horizontal layout
+/*
 func (engine *Engine) Draw2(screen *ebiten.Image) {
 
     ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
@@ -840,6 +1207,7 @@ func (engine *Engine) Draw2(screen *ebiten.Image) {
     ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), 10, ScreenHeight - 40)
     ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), 10, ScreenHeight - 20)
 }
+*/
 
 func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
     return outsideWidth, outsideHeight
@@ -864,11 +1232,11 @@ func main() {
 
     log.SetFlags(log.Ldate | log.Lshortfile | log.Lmicroseconds)
 
-    if len(os.Args) < 2 {
-        log.Fatalf("Usage: %s <song directory or zip file>", os.Args[0])
-    }
+    var path string
 
-    path := os.Args[1]
+    if len(os.Args) > 1 {
+        path = os.Args[1]
+    }
 
     log.Printf("Initializing")
 
