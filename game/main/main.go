@@ -674,6 +674,40 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
     return nil
 }
 
+func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
+    chosen := false
+
+    face := &text.GoTextFace{
+        Source: engine.Font,
+        Size: 24,
+    }
+
+    song := ""
+
+    engine.PushDrawer(func(screen *ebiten.Image) {
+        var textOptions text.DrawOptions
+        textOptions.GeoM.Translate(10, 10)
+        text.Draw(screen, "Select a song", face, &textOptions)
+    })
+    defer engine.PopDrawer()
+
+    for !chosen {
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    return ""
+            }
+        }
+
+        if yield() != nil {
+            return ""
+        }
+    }
+
+    return song
+}
+
 func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
     quit := false
 
@@ -710,7 +744,10 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
     }
 
     selectButton := makeButton("Select Song", func (args *widget.ButtonClickedEventArgs) {
-        log.Printf("Choose a song to play")
+        selectedSong := chooseSong(yield, engine)
+        if selectedSong != "" {
+            playSong(yield, engine, selectedSong)
+        }
     })
 
     // selectButton.Focus(true)
