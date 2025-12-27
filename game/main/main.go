@@ -15,6 +15,9 @@ import (
     "bytes"
     "sync"
     "strings"
+    "errors"
+
+    "github.com/kazzmir/rhythm/lib/coroutine"
 
     smflib "gitlab.com/gomidi/midi/v2/smf"
 
@@ -501,6 +504,20 @@ type Engine struct {
     AudioContext *audio.Context
     CurrentSong *Song
     Font *text.GoTextFaceSource
+
+    Drawers []func(screen *ebiten.Image)
+
+    Coroutine *coroutine.Coroutine
+}
+
+func (engine *Engine) PushDrawer(drawer func(screen *ebiten.Image)) {
+    engine.Drawers = append(engine.Drawers, drawer)
+}
+
+func (engine *Engine) PopDrawer() {
+    if len(engine.Drawers) > 0 {
+        engine.Drawers = engine.Drawers[:len(engine.Drawers)-1]
+    }
 }
 
 func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
@@ -534,9 +551,14 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         return nil, fmt.Errorf("Failed to load font: %v", err)
     }
 
-    engine := &Engine{
+    var engine *Engine
+
+    engine = &Engine{
         AudioContext: audioContext,
         Font: font,
+        Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+            return runMenu(engine, yield)
+        }),
     }
 
     song, err := MakeSong(audioContext, songDirectory)
@@ -580,13 +602,50 @@ func (engine *Engine) Update() error {
         }
     }
 
+    if ebiten.IsWindowBeingClosed() {
+        engine.Coroutine.Stop()
+    }
+
+    err := engine.Coroutine.Run()
+    if err != nil {
+        if errors.Is(err, coroutine.CoroutineFinished) || errors.Is(err, coroutine.CoroutineCancelled) {
+            return ebiten.Termination
+        }
+
+        return err
+    }
+
     engine.CurrentSong.Update()
 
     return nil
 }
 
-// vertical layout
+func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
+
+    engine.PushDrawer(func(screen *ebiten.Image) {
+        screen.Fill(color.RGBA{R: 255, G: 0, B: 0, A: 255})
+    })
+    defer engine.PopDrawer()
+
+    quit := false
+    for !quit {
+        if yield() != nil {
+            break
+        }
+    }
+
+    return nil
+}
+
 func (engine *Engine) Draw(screen *ebiten.Image) {
+    if len(engine.Drawers) > 0 {
+        drawer := engine.Drawers[len(engine.Drawers)-1]
+        drawer(screen)
+    }
+}
+
+// vertical layout
+func (engine *Engine) Draw3(screen *ebiten.Image) {
     // ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
 
     delta := time.Since(engine.CurrentSong.StartTime)
