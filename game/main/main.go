@@ -219,6 +219,43 @@ func getFileSize(file *os.File) int64 {
     return info.Size()
 }
 
+func findFile(basefs fs.FS, name string) (fs.File, error) {
+    // try direct open first
+    file, err := basefs.Open(name)
+    if err == nil {
+        return file, nil
+    }
+
+    // walk the FS to find the file
+    var foundFile fs.File
+    err = fs.WalkDir(basefs, ".", func(path string, d fs.DirEntry, err error) error {
+        if err != nil {
+            return err
+        }
+
+        if !d.IsDir() && filepath.Base(path) == name {
+            file, err := basefs.Open(path)
+            if err != nil {
+                return err
+            }
+            foundFile = file
+            return fs.SkipDir
+        }
+
+        return nil
+    })
+
+    if err != nil {
+        return nil, err
+    }
+
+    if foundFile == nil {
+        return nil, fmt.Errorf("file '%v' not found", name)
+    }
+
+    return foundFile, nil
+}
+
 func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) {
     song := Song{
         Frets: make([]Fret, 5),
@@ -274,19 +311,29 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         basefs = os.DirFS(songDirectory)
     }
 
-    // songPath := filepath.Join(songDirectory, "song.ogg")
+    // FIXME: search for song.ogg within the FS by doing an fs walk
 
-    songPlayer, cleanup, err := loadOgg(audioContext, basefs, "song.ogg")
+    songFile, err := findFile(basefs, "song.ogg")
+    if err != nil {
+        return nil, fmt.Errorf("Unable to find song.ogg in song directory '%v': %v", songDirectory, err)
+    }
+    defer songFile.Close()
+
+    songPlayer, cleanup, err := loadOgg(audioContext, songFile, "song.ogg")
     if err != nil {
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.ogg", err)
     }
 
     song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
 
-    guitarPath := filepath.Join(songDirectory, "guitar.ogg")
-    guitarPlayer, cleanup, err := loadOgg(audioContext, basefs, "guitar.ogg")
+    guitarFile, err := findFile(basefs, "guitar.ogg")
     if err != nil {
-        return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", guitarPath, err)
+        return nil, fmt.Errorf("Unable to find guitar.ogg in song directory '%v': %v", songDirectory, err)
+    }
+    defer guitarFile.Close()
+    guitarPlayer, cleanup, err := loadOgg(audioContext, guitarFile, "guitar.ogg")
+    if err != nil {
+        return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.ogg", err)
     }
 
     song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
@@ -296,12 +343,18 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
 
     // notesPath := filepath.Join(songDirectory, "notes.mid")
 
-    notesReader, err := basefs.Open("notes.mid")
+    notesFile, err := findFile(basefs, "notes.mid")
     if err != nil {
         return nil, fmt.Errorf("Unable to open MIDI file '%v': %v", "notes.mid", err)
     }
+    defer notesFile.Close()
 
-    smf, err := smflib.ReadFrom(bufio.NewReader(notesReader))
+    notesData, err := io.ReadAll(bufio.NewReader(notesFile))
+    if err != nil {
+        return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
+    }
+
+    smf, err := smflib.ReadFrom(bytes.NewReader(notesData))
     if err != nil {
         return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
@@ -314,13 +367,8 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
 
     log.Printf("Using guitar track %d for notes", guitarTrack)
 
-    notesReader, err = basefs.Open("notes.mid")
-    if err != nil {
-        return nil, fmt.Errorf("Unable to open MIDI file '%v': %v", "notes.mid", err)
-    }
-
     // FIXME: lame that we have to read the file again
-    reader := smflib.ReadTracksFrom(bufio.NewReader(notesReader), guitarTrack)
+    reader := smflib.ReadTracksFrom(bytes.NewReader(notesData), guitarTrack)
     if reader.Error() != nil {
         return nil, reader.Error()
     }
@@ -356,15 +404,8 @@ type Engine struct {
     CurrentSong *Song
 }
 
-func loadOgg(audioContext *audio.Context, system fs.FS, path string) (*audio.Player, func(), error) {
-    songDataReader, err := system.Open(path)
-    if err != nil {
-        return nil, nil, err
-    }
-
-    defer songDataReader.Close()
-
-    allData, err := io.ReadAll(bufio.NewReader(songDataReader))
+func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, func(), error) {
+    allData, err := io.ReadAll(bufio.NewReader(file))
     if err != nil {
         return nil, nil, err
     }
@@ -379,7 +420,7 @@ func loadOgg(audioContext *audio.Context, system fs.FS, path string) (*audio.Pla
         return nil, nil, err
     }
 
-    log.Printf("Loaded OGG file '%s' length %d", path, len(allData))
+    log.Printf("Loaded OGG file '%s' length %d", name, len(allData))
 
     return songPlayer, func(){}, nil
 }
