@@ -3,6 +3,8 @@ package main
 import (
     "log"
     "time"
+    "slices"
+    "cmp"
     "os"
     "io"
     "io/fs"
@@ -778,6 +780,12 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
     )
 
     songPaths := scanSongs()
+
+    songPaths = slices.SortedFunc(slices.Values(songPaths), func(a, b string) int {
+        ax := filepath.Base(strings.ToLower(a))
+        bx := filepath.Base(strings.ToLower(b))
+        return cmp.Compare(ax, bx)
+    })
 
     songList := widget.NewList(
         widget.ListOpts.EntryFontFace(&tface),
