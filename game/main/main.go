@@ -78,6 +78,7 @@ type Song struct {
     DoSong sync.Once
     NotesHit int
     NotesMissed int
+    SongLength time.Duration
 
     Score int
 
@@ -353,7 +354,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     }
     defer songFile.Close()
 
-    songPlayer, cleanup, err := loadOgg(audioContext, songFile, "song.ogg")
+    songPlayer, songLength, cleanup, err := loadOgg(audioContext, songFile, "song.ogg")
     if err != nil {
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.ogg", err)
     }
@@ -365,13 +366,14 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         return nil, fmt.Errorf("Unable to find guitar.ogg in song directory '%v': %v", songDirectory, err)
     }
     defer guitarFile.Close()
-    guitarPlayer, cleanup, err := loadOgg(audioContext, guitarFile, "guitar.ogg")
+    guitarPlayer, _, cleanup, err := loadOgg(audioContext, guitarFile, "guitar.ogg")
     if err != nil {
         return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.ogg", err)
     }
 
     song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
 
+    song.SongLength = songLength
     song.Song = songPlayer
     song.Guitar = guitarPlayer
 
@@ -501,25 +503,29 @@ type Engine struct {
     Font *text.GoTextFaceSource
 }
 
-func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, func(), error) {
+func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
     allData, err := io.ReadAll(bufio.NewReader(file))
     if err != nil {
-        return nil, nil, err
+        return nil, 0, nil, err
     }
 
     songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), bytes.NewReader(allData))
     if err != nil {
-        return nil, nil, err
+        return nil, 0, nil, err
     }
+
+    // divide by 2 for 16-bit samples, divide by 2 for stereo
+    length := songReader.Length() / 2 / 2 / int64(songReader.SampleRate())
+    // log.Printf("OGG file '%s' rate %v bytes %v length: %v", name, songReader.SampleRate(), songReader.Length(), time.Duration(length) * time.Second)
 
     songPlayer, err := audioContext.NewPlayer(songReader)
     if err != nil {
-        return nil, nil, err
+        return nil, 0, nil, err
     }
 
     log.Printf("Loaded OGG file '%s' length %d", name, len(allData))
 
-    return songPlayer, func(){}, nil
+    return songPlayer, time.Duration(length) * time.Second, func(){}, nil
 }
 
 func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
@@ -583,6 +589,8 @@ func (engine *Engine) Update() error {
 func (engine *Engine) Draw(screen *ebiten.Image) {
     // ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
 
+    delta := time.Since(engine.CurrentSong.StartTime)
+
     face := &text.GoTextFace{
         Source: engine.Font,
         Size: 24,
@@ -590,6 +598,8 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
     var textOptions text.DrawOptions
     textOptions.GeoM.Translate(850, 100)
+    text.Draw(screen, fmt.Sprintf("Time: %v / %v", delta.Truncate(time.Second), engine.CurrentSong.SongLength.Truncate(time.Second)), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
     text.Draw(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
     text.Draw(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), face, &textOptions)
@@ -625,7 +635,6 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 
     const noteSize = 25
 
-    delta := time.Since(engine.CurrentSong.StartTime)
     for i := range engine.CurrentSong.Frets {
         fret := &engine.CurrentSong.Frets[i]
 
