@@ -331,7 +331,7 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
 
 func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) {
     song := Song{
-        Frets: make([]Fret, 5),
+        Frets: make([]Fret, 6),
     }
 
     song.Frets[0].Key = ebiten.Key1
@@ -339,7 +339,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     song.Frets[2].Key = ebiten.Key3
     song.Frets[3].Key = ebiten.Key4
     song.Frets[4].Key = ebiten.Key5
-    // engine.Frets[5].Key = ebiten.Key6
+    song.Frets[5].Key = ebiten.Key6
 
     difficulty := "easy"
 
@@ -569,6 +569,11 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         AudioContext: audioContext,
         Font: font,
         Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+            if songDirectory != "" {
+                err := playSong(yield, engine, songDirectory)
+                return err
+            }
+
             return runMenu(engine, yield)
         }),
     }
@@ -674,11 +679,65 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
     return nil
 }
 
+// true if the directory contains song.ogg, guitar.ogg, and notes.mid
+func isSongDirectory(path string) bool {
+    requiredFiles := make(map[string]bool)
+    requiredFiles["song.ogg"] = false
+    requiredFiles["guitar.ogg"] = false
+    requiredFiles["notes.mid"] = false
+    entries, err := os.ReadDir(path)
+    if err != nil {
+        return false
+    }
+
+    for _, entry := range entries {
+        if entry.IsDir() {
+            continue
+        }
+
+        name := strings.ToLower(entry.Name())
+        if _, ok := requiredFiles[name]; ok {
+            requiredFiles[name] = true
+        }
+    }
+
+    for _, found := range requiredFiles {
+        if !found {
+            return false
+        }
+    }
+
+    return true
+}
+
 func scanSongs() []string {
+
+    var paths []string
+
+    fs.WalkDir(os.DirFS("."), ".", func(path string, entry fs.DirEntry, err error) error {
+        if err != nil {
+            return err
+        }
+
+        if entry.IsDir() {
+            log.Printf("Checking directory: %s", path)
+            if isSongDirectory(path) {
+                paths = append(paths, path)
+            }
+            return nil
+        } else {
+            return nil
+        }
+    })
+
+    return paths
+
+    /*
     return []string{
         "Queen - Killer Queen",
         "CloneHeroSongs/Yes - Roundabout",
     }
+    */
 }
 
 func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
@@ -742,7 +801,8 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         )),
         widget.ListOpts.EntryLabelFunc(
             func (e any) string {
-                return e.(string)
+                name := e.(string)
+                return filepath.Base(name)
             },
         ),
         widget.ListOpts.EntrySelectedHandler(func (args *widget.ListEntrySelectedEventArgs) {
