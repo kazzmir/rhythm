@@ -28,6 +28,10 @@ import (
     "github.com/hajimehoshi/ebiten/v2/vector"
     // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
+
+    "github.com/ebitenui/ebitenui"
+    "github.com/ebitenui/ebitenui/widget"
+    ui_image "github.com/ebitenui/ebitenui/image"
 )
 
 const ScreenWidth = 1200
@@ -671,15 +675,62 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
 }
 
 func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
+    quit := false
+
+    face := &text.GoTextFace{
+        Source: engine.Font,
+        Size: 24,
+    }
+    var tface text.Face = face
+
+    rootContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewRowLayout(
+            widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+            widget.RowLayoutOpts.Spacing(12),
+            widget.RowLayoutOpts.Padding(&widget.Insets{Top: 10, Left: 10, Right: 10}),
+        )),
+    )
+
+    makeButton := func(text string, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
+        return widget.NewButton(
+            widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
+            widget.ButtonOpts.Image(&widget.ButtonImage{
+                Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 60, G: 120, B: 170, A: 255}),
+                Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 100, G: 160, B: 210, A: 255}),
+                Pressed: ui_image.NewNineSliceColor(color.NRGBA{R: 50, G: 110, B: 160, A: 255}),
+            }),
+            widget.ButtonOpts.Text(text, &tface, &widget.ButtonTextColor{
+                Idle: color.White,
+                Hover: color.White,
+                Pressed: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+            widget.ButtonOpts.ClickedHandler(onClick),
+        )
+    }
+
+    selectButton := makeButton("Select Song", func (args *widget.ButtonClickedEventArgs) {
+        log.Printf("Choose a song to play")
+    })
+
+    // selectButton.Focus(true)
+    rootContainer.AddChild(selectButton)
+
+    rootContainer.AddChild(makeButton("Quit", func (args *widget.ButtonClickedEventArgs) {
+        quit = true
+    }))
+
+    ui := ebitenui.UI{
+        Container: rootContainer,
+    }
 
     engine.PushDrawer(func(screen *ebiten.Image) {
-        screen.Fill(color.RGBA{R: 255, G: 0, B: 0, A: 255})
+        ui.Draw(screen)
     })
     defer engine.PopDrawer()
 
     song := "Queen - Killer Queen"
 
-    quit := false
     for !quit {
 
         keys := inpututil.AppendJustPressedKeys(nil)
@@ -691,6 +742,8 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
                     playSong(yield, engine, song)
             }
         }
+
+        ui.Update()
 
         if yield() != nil {
             break
