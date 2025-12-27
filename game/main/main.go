@@ -28,7 +28,7 @@ import (
 )
 
 const ScreenWidth = 1200
-const ScreenHeight = 800
+const ScreenHeight = 1000
 
 const NoteThresholdHigh = time.Millisecond * 250
 const NoteThresholdLow = -time.Millisecond * 150
@@ -541,7 +541,7 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
     }
 
     var textOptions text.DrawOptions
-    textOptions.GeoM.Translate(700, 100)
+    textOptions.GeoM.Translate(850, 100)
     text.Draw(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
     text.Draw(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), face, &textOptions)
@@ -554,30 +554,34 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
     textOptions.GeoM.Translate(0, 30)
     text.Draw(screen, fmt.Sprintf("Score: %d", engine.CurrentSong.Score), face, &textOptions)
 
-    playLine := ScreenHeight - 100
+    playLine := ScreenHeight - 130
 
     white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
     grey := color.NRGBA{R: 100, G: 100, B: 100, A: 255}
 
-    xStart := 50
+    highwayXStart := 200
+
+    xStart := 50 + highwayXStart
     xWidth := 500
+
+    vector.FillRect(screen, float32(xStart), 0, float32(xWidth), float32(ScreenHeight), color.NRGBA{R: 32, G: 32, B: 32, A: 255}, true)
 
     vector.StrokeLine(screen, float32(xStart), float32(playLine), float32(xStart + xWidth), float32(playLine), 5, white, true)
 
-    const noteSpeed = 5
+    const noteSpeed = 8
 
     thresholdLow := int64(NoteThresholdLow / time.Millisecond) / noteSpeed
     thresholdHigh := int64(NoteThresholdHigh / time.Millisecond) / noteSpeed
 
     vector.FillRect(screen, float32(xStart), float32(playLine - int(thresholdHigh)), float32(xWidth), float32(int(thresholdHigh - thresholdLow)), color.NRGBA{R: 100, G: 100, B: 100, A: 100}, true)
 
-    const noteSize = 30
+    const noteSize = 25
 
     delta := time.Since(engine.CurrentSong.StartTime)
     for i := range engine.CurrentSong.Frets {
         fret := &engine.CurrentSong.Frets[i]
 
-        xFret := 100 + i * 100
+        xFret := 100 + highwayXStart + i * 100
 
         vector.StrokeLine(screen, float32(xFret), 0, float32(xFret), float32(ScreenHeight), 3, white, true)
 
