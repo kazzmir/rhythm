@@ -24,10 +24,11 @@ import (
     "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/vector"
     "github.com/hajimehoshi/ebiten/v2/ebitenutil"
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 const ScreenWidth = 1200
-const ScreenHeight = 800
+const ScreenHeight = 1000
 
 const NoteThresholdHigh = time.Millisecond * 250
 const NoteThresholdLow = -time.Millisecond * 150
@@ -58,6 +59,15 @@ type Fret struct {
     Key ebiten.Key
 }
 
+type SongInfo struct {
+    Artist string
+    Name string
+    Album string
+    Genre string
+    Year string
+    SongLength time.Duration
+}
+
 type Song struct {
     Frets []Fret
     StartTime time.Time
@@ -68,6 +78,15 @@ type Song struct {
     DoSong sync.Once
     NotesHit int
     NotesMissed int
+
+    Score int
+
+    SongInfo SongInfo
+}
+
+// total notes seen so far
+func (song *Song) TotalNotes() int {
+    return song.NotesHit + song.NotesMissed
 }
 
 func (song *Song) Close() {
@@ -166,9 +185,11 @@ func (song *Song) Update() {
                 }
             } else if note.State == NoteStateHit && note.Sustain {
                 // determine if the note has a sustained part and the keys are still held
-                if note.End > delta {
+                if note.End > delta && note.End - note.Start > time.Millisecond * 200 {
                     if fret.Press.IsZero() {
                         note.Sustain = false
+                    } else {
+                        song.Score += 1
                     }
                 }
             }
@@ -194,6 +215,7 @@ func (song *Song) Update() {
             song.NotesHit += 1
             playGuitar = true
             changeGuitar = true
+            song.Score += 5
         }
     }
 
@@ -210,7 +232,6 @@ func (song *Song) Update() {
             song.Guitar.Pause()
         }
     }
-
 }
 
 // returns the index of the guitar track, or -1 if not found
@@ -372,7 +393,44 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         return nil, err
     }
 
+    iniFile, err := findFile(basefs, "song.ini")
+    if err == nil {
+        defer iniFile.Close()
+        song.SongInfo = loadSongInfo(iniFile)
+        log.Printf("Loaded song info: %+v", song.SongInfo)
+    }
+
     return &song, nil
+}
+
+// load song info from song.ini file
+func loadSongInfo(file fs.File) SongInfo {
+    var out SongInfo
+
+    scanner := bufio.NewScanner(file)
+    for scanner.Scan() {
+        line := strings.TrimSpace(scanner.Text())
+
+        if line == "[song]" {
+            continue
+        }
+
+        name, value, ok := strings.Cut(line, "=")
+        if ok {
+            name = strings.ToLower(strings.TrimSpace(name))
+            value = strings.TrimSpace(value)
+
+            switch name {
+                case "artist": out.Artist = value
+                case "name": out.Name = value
+                case "album": out.Album = value
+                case "genre": out.Genre = value
+                case "year": out.Year = value
+            }
+        }
+    }
+
+    return out
 }
 
 // notesData is assumed to be the contents of a MIDI file
@@ -440,6 +498,7 @@ func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
 type Engine struct {
     AudioContext *audio.Context
     CurrentSong *Song
+    Font *text.GoTextFaceSource
 }
 
 func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, func(), error) {
@@ -464,8 +523,14 @@ func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
 }
 
 func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
+    font, err := LoadFont()
+    if err != nil {
+        return nil, fmt.Errorf("Failed to load font: %v", err)
+    }
+
     engine := &Engine{
         AudioContext: audioContext,
+        Font: font,
     }
 
     song, err := MakeSong(audioContext, songDirectory)
@@ -516,32 +581,55 @@ func (engine *Engine) Update() error {
 
 // vertical layout
 func (engine *Engine) Draw(screen *ebiten.Image) {
-    ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
+    // ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
 
-    playLine := ScreenHeight - 100
+    face := &text.GoTextFace{
+        Source: engine.Font,
+        Size: 24,
+    }
+
+    var textOptions text.DrawOptions
+    textOptions.GeoM.Translate(850, 100)
+    text.Draw(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    percent := 0
+    if engine.CurrentSong.TotalNotes() > 0 {
+        percent = engine.CurrentSong.NotesHit * 100 / engine.CurrentSong.TotalNotes()
+    }
+    text.Draw(screen, fmt.Sprintf("Notes: %d%%", percent), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Score: %d", engine.CurrentSong.Score), face, &textOptions)
+
+    playLine := ScreenHeight - 130
 
     white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
     grey := color.NRGBA{R: 100, G: 100, B: 100, A: 255}
 
-    xStart := 50
+    highwayXStart := 250
+
+    xStart := 50 + highwayXStart
     xWidth := 500
+
+    vector.FillRect(screen, float32(xStart), 0, float32(xWidth), float32(ScreenHeight), color.NRGBA{R: 32, G: 32, B: 32, A: 255}, true)
 
     vector.StrokeLine(screen, float32(xStart), float32(playLine), float32(xStart + xWidth), float32(playLine), 5, white, true)
 
-    const noteSpeed = 5
+    const noteSpeed = 8
 
     thresholdLow := int64(NoteThresholdLow / time.Millisecond) / noteSpeed
     thresholdHigh := int64(NoteThresholdHigh / time.Millisecond) / noteSpeed
 
     vector.FillRect(screen, float32(xStart), float32(playLine - int(thresholdHigh)), float32(xWidth), float32(int(thresholdHigh - thresholdLow)), color.NRGBA{R: 100, G: 100, B: 100, A: 100}, true)
 
-    const noteSize = 30
+    const noteSize = 25
 
     delta := time.Since(engine.CurrentSong.StartTime)
     for i := range engine.CurrentSong.Frets {
         fret := &engine.CurrentSong.Frets[i]
 
-        xFret := 100 + i * 100
+        xFret := 100 + highwayXStart + i * 100
 
         vector.StrokeLine(screen, float32(xFret), 0, float32(xFret), float32(ScreenHeight), 3, white, true)
 
@@ -614,6 +702,30 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
             }
         }
 
+    }
+
+    if delta < time.Second * 2 && engine.CurrentSong.SongInfo.Name != "" {
+        face = &text.GoTextFace{
+            Source: engine.Font,
+            Size: 30,
+        }
+
+        if delta < time.Millisecond * 300 {
+            textOptions.ColorScale.ScaleAlpha(float32(delta) / float32(time.Millisecond * 300))
+        } else if delta > time.Millisecond * 1700 {
+            diff := delta - time.Millisecond * 1700
+            alpha := float32(time.Millisecond * 300 - diff) / float32(time.Millisecond * 300)
+            if alpha < 0 {
+                alpha = 0
+            }
+            textOptions.ColorScale.ScaleAlpha(alpha)
+        }
+
+        textOptions.GeoM.Reset()
+        textOptions.GeoM.Translate(10, 60)
+        text.Draw(screen, fmt.Sprintf("Song: %s", engine.CurrentSong.SongInfo.Name), face, &textOptions)
+        textOptions.GeoM.Translate(0, 40)
+        text.Draw(screen, fmt.Sprintf("Artist: %s", engine.CurrentSong.SongInfo.Artist), face, &textOptions)
     }
 }
 
