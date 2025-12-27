@@ -59,6 +59,15 @@ type Fret struct {
     Key ebiten.Key
 }
 
+type SongInfo struct {
+    Artist string
+    Name string
+    Album string
+    Genre string
+    Year string
+    SongLength time.Duration
+}
+
 type Song struct {
     Frets []Fret
     StartTime time.Time
@@ -71,6 +80,8 @@ type Song struct {
     NotesMissed int
 
     Score int
+
+    SongInfo SongInfo
 }
 
 // total notes seen so far
@@ -382,7 +393,44 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         return nil, err
     }
 
+    iniFile, err := findFile(basefs, "song.ini")
+    if err == nil {
+        defer iniFile.Close()
+        song.SongInfo = loadSongInfo(iniFile)
+        log.Printf("Loaded song info: %+v", song.SongInfo)
+    }
+
     return &song, nil
+}
+
+// load song info from song.ini file
+func loadSongInfo(file fs.File) SongInfo {
+    var out SongInfo
+
+    scanner := bufio.NewScanner(file)
+    for scanner.Scan() {
+        line := strings.TrimSpace(scanner.Text())
+
+        if line == "[song]" {
+            continue
+        }
+
+        name, value, ok := strings.Cut(line, "=")
+        if ok {
+            name = strings.ToLower(strings.TrimSpace(name))
+            value = strings.TrimSpace(value)
+
+            switch name {
+                case "artist": out.Artist = value
+                case "name": out.Name = value
+                case "album": out.Album = value
+                case "genre": out.Genre = value
+                case "year": out.Year = value
+            }
+        }
+    }
+
+    return out
 }
 
 // notesData is assumed to be the contents of a MIDI file
@@ -559,7 +607,7 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
     white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
     grey := color.NRGBA{R: 100, G: 100, B: 100, A: 255}
 
-    highwayXStart := 200
+    highwayXStart := 250
 
     xStart := 50 + highwayXStart
     xWidth := 500
@@ -654,6 +702,30 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
             }
         }
 
+    }
+
+    if delta < time.Second * 2 && engine.CurrentSong.SongInfo.Name != "" {
+        face = &text.GoTextFace{
+            Source: engine.Font,
+            Size: 30,
+        }
+
+        if delta < time.Millisecond * 300 {
+            textOptions.ColorScale.ScaleAlpha(float32(delta) / float32(time.Millisecond * 300))
+        } else if delta > time.Millisecond * 1700 {
+            diff := delta - time.Millisecond * 1700
+            alpha := float32(time.Millisecond * 300 - diff) / float32(time.Millisecond * 300)
+            if alpha < 0 {
+                alpha = 0
+            }
+            textOptions.ColorScale.ScaleAlpha(alpha)
+        }
+
+        textOptions.GeoM.Reset()
+        textOptions.GeoM.Translate(10, 60)
+        text.Draw(screen, fmt.Sprintf("Song: %s", engine.CurrentSong.SongInfo.Name), face, &textOptions)
+        textOptions.GeoM.Translate(0, 40)
+        text.Draw(screen, fmt.Sprintf("Artist: %s", engine.CurrentSong.SongInfo.Artist), face, &textOptions)
     }
 }
 
