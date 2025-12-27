@@ -269,21 +269,6 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     // engine.Frets[5].Key = ebiten.Key6
 
     difficulty := "easy"
-    var low, high int
-    switch difficulty {
-        case "easy":
-            low = 60
-            high = 65
-        case "medium":
-            low = 72
-            high = 76
-        case "hard":
-            high = 84
-            low = 90
-        case "expert":
-            high = 96
-            low = 100
-    }
 
     var basefs fs.FS
 
@@ -295,12 +280,6 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
 
         defer zipFile.Close()
 
-        /*
-        song.CleanupFuncs = append(song.CleanupFuncs, func(){
-            zipFile.Close()
-        })
-        */
-
         zipper, err := zip.NewReader(zipFile, getFileSize(zipFile))
         if err != nil {
             return nil, fmt.Errorf("Unable to read song zip file '%v': %v", songDirectory, err)
@@ -310,8 +289,6 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     } else {
         basefs = os.DirFS(songDirectory)
     }
-
-    // FIXME: search for song.ogg within the FS by doing an fs walk
 
     songFile, err := findFile(basefs, "song.ogg")
     if err != nil {
@@ -354,23 +331,48 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
 
+    err = song.ReadNotes(notesData, difficulty)
+    if err != nil {
+        return nil, err
+    }
+
+    return &song, nil
+}
+
+// notesData is assumed to be the contents of a MIDI file
+func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
+    var low, high int
+    switch difficulty {
+        case "easy":
+            low = 60
+            high = 65
+        case "medium":
+            low = 72
+            high = 76
+        case "hard":
+            high = 84
+            low = 90
+        case "expert":
+            high = 96
+            low = 100
+    }
+
     smf, err := smflib.ReadFrom(bytes.NewReader(notesData))
     if err != nil {
-        return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
+        return fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
 
     guitarTrack := findGuitarTrack(smf)
 
     if guitarTrack == -1 {
-        return nil, fmt.Errorf("Unable to find guitar track in MIDI file '%v'", "notes.mid")
+        return fmt.Errorf("Unable to find guitar track in MIDI file '%v'", "notes.mid")
     }
 
     log.Printf("Using guitar track %d for notes", guitarTrack)
 
-    // FIXME: lame that we have to read the file again
     reader := smflib.ReadTracksFrom(bytes.NewReader(notesData), guitarTrack)
     if reader.Error() != nil {
-        return nil, reader.Error()
+        return reader.Error()
     }
     reader.Do(func (event smflib.TrackEvent) {
         // log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
@@ -396,7 +398,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         }
     })
 
-    return &song, nil
+    return nil
 }
 
 type Engine struct {
