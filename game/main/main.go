@@ -26,7 +26,7 @@ import (
     "github.com/hajimehoshi/ebiten/v2/audio/vorbis"
     "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/vector"
-    "github.com/hajimehoshi/ebiten/v2/ebitenutil"
+    // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
@@ -88,12 +88,20 @@ type Song struct {
     SongInfo SongInfo
 }
 
+func (song *Song) Finished() bool {
+    delta := time.Since(song.StartTime)
+    return delta >= song.SongLength + time.Second * 2
+}
+
 // total notes seen so far
 func (song *Song) TotalNotes() int {
     return song.NotesHit + song.NotesMissed
 }
 
 func (song *Song) Close() {
+    song.Song.Pause()
+    song.Guitar.Pause()
+
     for _, cleanup := range song.CleanupFuncs {
         cleanup()
     }
@@ -502,7 +510,7 @@ func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
 
 type Engine struct {
     AudioContext *audio.Context
-    CurrentSong *Song
+    // CurrentSong *Song
     Font *text.GoTextFaceSource
 
     Drawers []func(screen *ebiten.Image)
@@ -561,20 +569,24 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         }),
     }
 
+    /*
     song, err := MakeSong(audioContext, songDirectory)
     if err != nil {
         return nil, fmt.Errorf("Failed to make song: %v", err)
     }
 
     engine.CurrentSong = song
+    */
 
     return engine, nil
 }
 
 func (engine *Engine) Close() {
+    /*
     if engine.CurrentSong != nil {
         engine.CurrentSong.Close()
     }
+    */
 }
 
 func (engine *Engine) TakeScreenshot() {
@@ -595,8 +607,10 @@ func (engine *Engine) Update() error {
     keys := inpututil.AppendJustPressedKeys(nil)
     for _, key := range keys {
         switch key {
+            /*
             case ebiten.KeyEscape, ebiten.KeyCapsLock:
                 return ebiten.Termination
+                */
             case ebiten.KeyF1:
                 engine.TakeScreenshot()
         }
@@ -615,7 +629,43 @@ func (engine *Engine) Update() error {
         return err
     }
 
-    engine.CurrentSong.Update()
+    // engine.CurrentSong.Update()
+
+    return nil
+}
+
+func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error {
+    song, err := MakeSong(engine.AudioContext, songPath)
+    if err != nil {
+        return err
+    }
+
+    defer song.Close()
+
+    engine.PushDrawer(func(screen *ebiten.Image) {
+        drawSong(screen, song, engine.Font)
+    })
+    defer engine.PopDrawer()
+
+    song.Update()
+    for !song.Finished() {
+
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    yield()
+                    return nil
+            }
+        }
+
+        song.Update()
+        if yield() != nil {
+            break
+        }
+    }
+
+    log.Printf("Song finished! Notes hit: %d, Notes missed: %d", song.NotesHit, song.NotesMissed)
 
     return nil
 }
@@ -627,8 +677,21 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
     })
     defer engine.PopDrawer()
 
+    song := "Queen - Killer Queen"
+
     quit := false
     for !quit {
+
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    quit = true
+                case ebiten.KeySpace:
+                    playSong(yield, engine, song)
+            }
+        }
+
         if yield() != nil {
             break
         }
@@ -645,31 +708,32 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
 }
 
 // vertical layout
-func (engine *Engine) Draw3(screen *ebiten.Image) {
+// func (engine *Engine) Draw3(screen *ebiten.Image) {
+func drawSong(screen *ebiten.Image, song *Song, font *text.GoTextFaceSource) {
     // ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
 
-    delta := time.Since(engine.CurrentSong.StartTime)
+    delta := time.Since(song.StartTime)
 
     face := &text.GoTextFace{
-        Source: engine.Font,
+        Source: font,
         Size: 24,
     }
 
     var textOptions text.DrawOptions
     textOptions.GeoM.Translate(850, 100)
-    text.Draw(screen, fmt.Sprintf("Time: %v / %v", delta.Truncate(time.Second), engine.CurrentSong.SongLength.Truncate(time.Second)), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Time: %v / %v", delta.Truncate(time.Second), song.SongLength.Truncate(time.Second)), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
-    text.Draw(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Notes Hit: %d", song.NotesHit), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
-    text.Draw(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Notes Missed: %d", song.NotesMissed), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
     percent := 0
-    if engine.CurrentSong.TotalNotes() > 0 {
-        percent = engine.CurrentSong.NotesHit * 100 / engine.CurrentSong.TotalNotes()
+    if song.TotalNotes() > 0 {
+        percent = song.NotesHit * 100 / song.TotalNotes()
     }
     text.Draw(screen, fmt.Sprintf("Notes: %d%%", percent), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
-    text.Draw(screen, fmt.Sprintf("Score: %d", engine.CurrentSong.Score), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Score: %d", song.Score), face, &textOptions)
 
     playLine := ScreenHeight - 130
 
@@ -694,8 +758,8 @@ func (engine *Engine) Draw3(screen *ebiten.Image) {
 
     const noteSize = 25
 
-    for i := range engine.CurrentSong.Frets {
-        fret := &engine.CurrentSong.Frets[i]
+    for i := range song.Frets {
+        fret := &song.Frets[i]
 
         xFret := 100 + highwayXStart + i * 100
 
@@ -772,9 +836,9 @@ func (engine *Engine) Draw3(screen *ebiten.Image) {
 
     }
 
-    if delta < time.Second * 2 && engine.CurrentSong.SongInfo.Name != "" {
+    if delta < time.Second * 2 && song.SongInfo.Name != "" {
         face = &text.GoTextFace{
-            Source: engine.Font,
+            Source: font,
             Size: 30,
         }
 
@@ -791,13 +855,14 @@ func (engine *Engine) Draw3(screen *ebiten.Image) {
 
         textOptions.GeoM.Reset()
         textOptions.GeoM.Translate(10, 60)
-        text.Draw(screen, fmt.Sprintf("Song: %s", engine.CurrentSong.SongInfo.Name), face, &textOptions)
+        text.Draw(screen, fmt.Sprintf("Song: %s", song.SongInfo.Name), face, &textOptions)
         textOptions.GeoM.Translate(0, 40)
-        text.Draw(screen, fmt.Sprintf("Artist: %s", engine.CurrentSong.SongInfo.Artist), face, &textOptions)
+        text.Draw(screen, fmt.Sprintf("Artist: %s", song.SongInfo.Artist), face, &textOptions)
     }
 }
 
 // horizontal layout
+/*
 func (engine *Engine) Draw2(screen *ebiten.Image) {
 
     ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS: %.2f", ebiten.ActualFPS()), 10, 10)
@@ -899,6 +964,7 @@ func (engine *Engine) Draw2(screen *ebiten.Image) {
     ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Hit: %d", engine.CurrentSong.NotesHit), 10, ScreenHeight - 40)
     ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Notes Missed: %d", engine.CurrentSong.NotesMissed), 10, ScreenHeight - 20)
 }
+*/
 
 func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
     return outsideWidth, outsideHeight
@@ -923,11 +989,11 @@ func main() {
 
     log.SetFlags(log.Ldate | log.Lshortfile | log.Lmicroseconds)
 
-    if len(os.Args) < 2 {
-        log.Fatalf("Usage: %s <song directory or zip file>", os.Args[0])
-    }
+    var path string
 
-    path := os.Args[1]
+    if len(os.Args) > 1 {
+        path = os.Args[1]
+    }
 
     log.Printf("Initializing")
 
