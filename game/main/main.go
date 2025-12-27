@@ -9,6 +9,7 @@ import (
     "image/png"
     "path/filepath"
     "sync"
+    "strings"
 
     smflib "gitlab.com/gomidi/midi/v2/smf"
 
@@ -168,6 +169,23 @@ func (song *Song) Update() {
 
 }
 
+// returns the index of the guitar track, or -1 if not found
+func findGuitarTrack(smf *smflib.SMF) int {
+    for i, track := range smf.Tracks {
+        if len(track) > 0 {
+            event := track[0]
+            var trackName string
+            if event.Message.GetMetaTrackName(&trackName) {
+                if strings.Contains(strings.ToLower(trackName), "guitar") {
+                    return i
+                }
+            }
+        }
+    }
+
+    return -1
+}
+
 func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) {
     song := Song{
         Frets: make([]Fret, 5),
@@ -219,7 +237,21 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
 
     notesPath := filepath.Join(songDirectory, "notes.mid")
 
-    reader := smflib.ReadTracks(notesPath, 2)
+    smf, err := smflib.ReadFile(notesPath)
+    if err != nil {
+        return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", notesPath, err)
+    }
+
+    guitarTrack := findGuitarTrack(smf)
+
+    if guitarTrack == -1 {
+        return nil, fmt.Errorf("Unable to find guitar track in MIDI file '%v'", notesPath)
+    }
+
+    log.Printf("Using guitar track %d for notes", guitarTrack)
+
+    // FIXME: lame that we have to read the file again
+    reader := smflib.ReadTracks(notesPath, guitarTrack)
     if reader.Error() != nil {
         return nil, reader.Error()
     }
