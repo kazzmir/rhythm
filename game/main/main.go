@@ -795,22 +795,39 @@ func isSongDirectory(path string) bool {
     return hasSong && hasGuitar && hasNotes
 }
 
-func scanSongs() []string {
+func scanSongs(where string, depth int) []string {
+
+    if depth > 10 {
+        return nil
+    }
 
     var paths []string
 
-    fs.WalkDir(os.DirFS("."), ".", func(path string, entry fs.DirEntry, err error) error {
+    useFs := os.DirFS(where)
+
+    fs.WalkDir(useFs, ".", func(path string, entry fs.DirEntry, err error) error {
         if err != nil {
             return err
         }
 
         if entry.IsDir() {
-            log.Printf("Checking directory: %s", path)
             if isSongDirectory(path) {
                 paths = append(paths, path)
             }
             return nil
         } else {
+            // might be a symlink to a directory
+            info, err := fs.Stat(useFs, path)
+            if err == nil {
+                if info.IsDir() {
+                    if isSongDirectory(filepath.Join(where, path)) {
+                        paths = append(paths, path)
+                    }
+
+                    paths = append(paths, scanSongs(filepath.Join(where, path), depth + 1)...)
+                }
+            }
+
             return nil
         }
     })
@@ -889,7 +906,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         )),
     )
 
-    songPaths := scanSongs()
+    songPaths := scanSongs(".", 0)
 
     songPaths = slices.SortedFunc(slices.Values(songPaths), func(a, b string) int {
         ax := filepath.Base(strings.ToLower(a))
