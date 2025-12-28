@@ -825,12 +825,13 @@ func scanSongs() []string {
 }
 
 func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
+    baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
     return widget.NewButton(
         widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
         widget.ButtonOpts.Image(&widget.ButtonImage{
-            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 60, G: 120, B: 170, A: 255}),
-            Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 100, G: 160, B: 210, A: 255}),
-            Pressed: ui_image.NewNineSliceColor(color.NRGBA{R: 50, G: 110, B: 160, A: 255}),
+            Idle: ui_image.NewNineSliceColor(darkenColor(baseColor, 0.4)),
+            Hover: ui_image.NewNineSliceColor(baseColor),
+            Pressed: ui_image.NewNineSliceColor(brightenColor(baseColor, 0.4)),
         }),
         widget.ButtonOpts.Text(text, &tface, &widget.ButtonTextColor{
             Idle: color.White,
@@ -985,7 +986,7 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
         }
     })
 
-    // selectButton.Focus(true)
+    selectButton.Focus(true)
     rootContainer.AddChild(selectButton)
 
     rootContainer.AddChild(makeButton("Quit", tface, func (args *widget.ButtonClickedEventArgs) {
@@ -1030,6 +1031,28 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
         drawer := engine.Drawers[len(engine.Drawers)-1]
         drawer(screen)
     }
+}
+
+func brightenColor(c color.Color, amount float64) color.Color {
+    h, s, v := colorconv.ColorToHSV(c)
+
+    v = v + (1.0 - v) * amount
+    s = s - s * amount
+
+    if v > 1.0 {
+        v = 1.0
+    }
+
+    if s < 0.0 {
+        s = 0.0
+    }
+
+    out, err := colorconv.HSVToColor(h, s, v)
+    if err == nil {
+        return out
+    }
+
+    return c
 }
 
 func darkenColor(c color.Color, amount float64) color.Color {
