@@ -1002,8 +1002,6 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
     })
     defer engine.PopDrawer()
 
-    song := "Queen - Killer Queen"
-
     for !quit {
 
         keys := inpututil.AppendJustPressedKeys(nil)
@@ -1011,8 +1009,10 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
             switch key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
                     quit = true
-                case ebiten.KeySpace:
-                    playSong(yield, engine, song)
+                case ebiten.KeyDown:
+                    ui.ChangeFocus(widget.FOCUS_NEXT)
+                case ebiten.KeyUp:
+                    ui.ChangeFocus(widget.FOCUS_PREVIOUS)
             }
         }
 
