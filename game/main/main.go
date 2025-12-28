@@ -811,21 +811,24 @@ func scanSongs(where string, depth int) []string {
             return err
         }
 
+        fullPath := filepath.Join(where, path)
+
         if entry.IsDir() {
-            if isSongDirectory(path) {
-                paths = append(paths, path)
+            if isSongDirectory(fullPath) {
+                paths = append(paths, fullPath)
             }
             return nil
         } else {
             // might be a symlink to a directory
-            info, err := fs.Stat(useFs, path)
+            info, err := fs.Stat(useFs, fullPath)
             if err == nil {
+                log.Printf("Path: %s, IsDir: %v", fullPath, info.IsDir())
                 if info.IsDir() {
-                    if isSongDirectory(filepath.Join(where, path)) {
-                        paths = append(paths, path)
+                    if isSongDirectory(fullPath) {
+                        paths = append(paths, fullPath)
                     }
 
-                    paths = append(paths, scanSongs(filepath.Join(where, path), depth + 1)...)
+                    paths = append(paths, scanSongs(fullPath, depth + 1)...)
                 }
             }
 
