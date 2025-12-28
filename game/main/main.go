@@ -20,6 +20,7 @@ import (
     "errors"
 
     "github.com/kazzmir/rhythm/lib/coroutine"
+    "github.com/kazzmir/rhythm/lib/colorconv"
 
     smflib "gitlab.com/gomidi/midi/v2/smf"
 
@@ -407,7 +408,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
 
-    err = song.ReadNotes(notesData, difficulty)
+    err = song.ReadNotes(notesData, difficulty, songLength)
     if err != nil {
         return nil, err
     }
@@ -453,7 +454,7 @@ func loadSongInfo(file fs.File) SongInfo {
 }
 
 // notesData is assumed to be the contents of a MIDI file
-func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
+func (song *Song) ReadNotes(notesData []byte, difficulty string, songLength time.Duration) error {
 
     // FIXME: dire straits sultans of swing uses keys higher than the normal range
 
@@ -502,6 +503,7 @@ func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
                         fret := &song.Frets[useFret]
                         fret.Notes = append(fret.Notes, Note{
                             Start: time.Microsecond * time.Duration(event.AbsMicroSeconds),
+                            End: songLength,
                         })
                     } else {
                         log.Printf("Warning: Fret %d out of range for key %d", useFret, key)
@@ -976,7 +978,15 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
     }
 }
 
-func darkenColor(c color.Color, amount float32) color.Color {
+func darkenColor(c color.Color, amount float64) color.Color {
+    h, s, v := colorconv.ColorToHSV(c)
+    v = v * (1.0 - amount)
+
+    out, err := colorconv.HSVToColor(h, s, v)
+    if err == nil {
+        return out
+    }
+
     return c
 }
 
@@ -1069,7 +1079,7 @@ func drawSong(screen *ebiten.Image, song *Song, font *text.GoTextFaceSource) {
 
                 var useColor color.Color = fretColor
 
-                if note.State == NoteStateMissed {
+                if note.State == NoteStateMissed || (note.State == NoteStateHit && !note.Sustain) {
                     useColor = darkenColor(useColor, 0.5)
                 }
 
