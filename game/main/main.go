@@ -13,6 +13,7 @@ import (
     "archive/zip"
     "image/color"
     "image/png"
+    "image/jpeg"
     "path/filepath"
     "bytes"
     "sync"
@@ -38,7 +39,7 @@ import (
     ui_image "github.com/ebitenui/ebitenui/image"
 )
 
-const ScreenWidth = 1200
+const ScreenWidth = 1400
 const ScreenHeight = 1000
 
 const NoteThresholdHigh = time.Millisecond * 250
@@ -794,22 +795,39 @@ func isSongDirectory(path string) bool {
     return hasSong && hasGuitar && hasNotes
 }
 
-func scanSongs() []string {
+func scanSongs(where string, depth int) []string {
+
+    if depth > 10 {
+        return nil
+    }
 
     var paths []string
 
-    fs.WalkDir(os.DirFS("."), ".", func(path string, entry fs.DirEntry, err error) error {
+    useFs := os.DirFS(where)
+
+    fs.WalkDir(useFs, ".", func(path string, entry fs.DirEntry, err error) error {
         if err != nil {
             return err
         }
 
         if entry.IsDir() {
-            log.Printf("Checking directory: %s", path)
             if isSongDirectory(path) {
                 paths = append(paths, path)
             }
             return nil
         } else {
+            // might be a symlink to a directory
+            info, err := fs.Stat(useFs, path)
+            if err == nil {
+                if info.IsDir() {
+                    if isSongDirectory(filepath.Join(where, path)) {
+                        paths = append(paths, path)
+                    }
+
+                    paths = append(paths, scanSongs(filepath.Join(where, path), depth + 1)...)
+                }
+            }
+
             return nil
         }
     })
@@ -824,13 +842,58 @@ func scanSongs() []string {
     */
 }
 
+func loadPng(file io.Reader) (*ebiten.Image, error) {
+    img, err := png.Decode(file)
+    if err != nil {
+        return nil, err
+    }
+    return ebiten.NewImageFromImage(img), nil
+}
+
+func loadJpeg(file io.Reader) (*ebiten.Image, error) {
+    img, err := jpeg.Decode(file)
+    if err != nil {
+        return nil, err
+    }
+    return ebiten.NewImageFromImage(img), nil
+}
+
+func loadAlbumImage(songFS fs.FS) *ebiten.Image {
+    for _, path := range []string{"album.png", "album.jpg", "album.jpeg"} {
+
+        // FIXME: make this case insensitive
+        file1, err := songFS.Open(path)
+        if err == nil {
+            defer file1.Close()
+
+            newImage, err := loadPng(file1)
+            if err == nil {
+                return newImage
+            }
+
+        }
+
+        file2, err := songFS.Open(path)
+        if err == nil {
+            defer file2.Close()
+            newImage, err := loadJpeg(file2)
+            if err == nil {
+                return newImage
+            }
+        }
+    }
+
+    return ebiten.NewImage(1, 1)
+}
+
 func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
+    baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
     return widget.NewButton(
         widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
         widget.ButtonOpts.Image(&widget.ButtonImage{
-            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 60, G: 120, B: 170, A: 255}),
-            Hover: ui_image.NewNineSliceColor(color.NRGBA{R: 100, G: 160, B: 210, A: 255}),
-            Pressed: ui_image.NewNineSliceColor(color.NRGBA{R: 50, G: 110, B: 160, A: 255}),
+            Idle: ui_image.NewNineSliceColor(darkenColor(baseColor, 0.4)),
+            Hover: ui_image.NewNineSliceColor(baseColor),
+            Pressed: ui_image.NewNineSliceColor(brightenColor(baseColor, 0.4)),
         }),
         widget.ButtonOpts.Text(text, &tface, &widget.ButtonTextColor{
             Idle: color.White,
@@ -861,13 +924,25 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         )),
     )
 
-    songPaths := scanSongs()
+    songPaths := scanSongs(".", 0)
 
     songPaths = slices.SortedFunc(slices.Values(songPaths), func(a, b string) int {
         ax := filepath.Base(strings.ToLower(a))
         bx := filepath.Base(strings.ToLower(b))
         return cmp.Compare(ax, bx)
     })
+
+    songContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewRowLayout(
+            widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+            widget.RowLayoutOpts.Spacing(12),
+        )),
+    )
+
+    albumImage := ebiten.NewImage(1, 1)
+    albumGraphic := widget.NewGraphic(
+        widget.GraphicOpts.Image(albumImage),
+    )
 
     songList := widget.NewList(
         widget.ListOpts.EntryFontFace(&tface),
@@ -889,6 +964,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
             }),
             widget.WidgetOpts.MinSize(0, 200),
         )),
+        widget.ListOpts.SelectFocus(),
         widget.ListOpts.EntryLabelFunc(
             func (e any) string {
                 name := e.(string)
@@ -898,6 +974,14 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         widget.ListOpts.EntrySelectedHandler(func (args *widget.ListEntrySelectedEventArgs) {
             entry := args.Entry.(string)
             song = entry
+
+            newImage := loadAlbumImage(os.DirFS(song))
+
+            oldAlbum := albumGraphic
+            albumGraphic = widget.NewGraphic(
+                widget.GraphicOpts.Image(newImage),
+            )
+            songContainer.ReplaceChild(oldAlbum, albumGraphic)
         }),
         widget.ListOpts.EntryColor(&widget.ListEntryColor{
             Selected: color.NRGBA{R: 100, G: 150, B: 200, A: 255},
@@ -925,9 +1009,14 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         chosen = true
     })
 
-    rootContainer.AddChild(songList)
+    songContainer.AddChild(songList)
+    songContainer.AddChild(albumGraphic)
+
+    rootContainer.AddChild(songContainer)
     rootContainer.AddChild(playButton)
     rootContainer.AddChild(backButton)
+
+    songList.Focus(true)
 
     ui := ebitenui.UI{
         Container: rootContainer,
@@ -948,6 +1037,18 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
             switch key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
                     return ""
+                case ebiten.KeyEnter:
+                    if song != "" {
+                        return song
+                    }
+                case ebiten.KeyPageDown:
+                    for range 10 {
+                        songList.FocusNext()
+                    }
+                case ebiten.KeyPageUp:
+                    for range 10 {
+                        songList.FocusPrevious()
+                    }
             }
         }
 
@@ -985,7 +1086,7 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
         }
     })
 
-    // selectButton.Focus(true)
+    selectButton.Focus(true)
     rootContainer.AddChild(selectButton)
 
     rootContainer.AddChild(makeButton("Quit", tface, func (args *widget.ButtonClickedEventArgs) {
@@ -1001,8 +1102,6 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
     })
     defer engine.PopDrawer()
 
-    song := "Queen - Killer Queen"
-
     for !quit {
 
         keys := inpututil.AppendJustPressedKeys(nil)
@@ -1010,8 +1109,10 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
             switch key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
                     quit = true
-                case ebiten.KeySpace:
-                    playSong(yield, engine, song)
+                case ebiten.KeyDown:
+                    ui.ChangeFocus(widget.FOCUS_NEXT)
+                case ebiten.KeyUp:
+                    ui.ChangeFocus(widget.FOCUS_PREVIOUS)
             }
         }
 
@@ -1030,6 +1131,28 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
         drawer := engine.Drawers[len(engine.Drawers)-1]
         drawer(screen)
     }
+}
+
+func brightenColor(c color.Color, amount float64) color.Color {
+    h, s, v := colorconv.ColorToHSV(c)
+
+    v = v + (1.0 - v) * amount
+    s = s - s * amount
+
+    if v > 1.0 {
+        v = 1.0
+    }
+
+    if s < 0.0 {
+        s = 0.0
+    }
+
+    out, err := colorconv.HSVToColor(h, s, v)
+    if err == nil {
+        return out
+    }
+
+    return c
 }
 
 func darkenColor(c color.Color, amount float64) color.Color {
