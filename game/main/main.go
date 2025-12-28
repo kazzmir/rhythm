@@ -923,7 +923,7 @@ func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonCl
     )
 }
 
-func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
+func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Background) string {
     chosen := false
 
     face := &text.GoTextFace{
@@ -1041,6 +1041,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
     }
 
     engine.PushDrawer(func(screen *ebiten.Image) {
+        background.Draw(screen)
         var textOptions text.DrawOptions
         textOptions.GeoM.Translate(10, 10)
         text.Draw(screen, "Select a song", face, &textOptions)
@@ -1070,6 +1071,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
             }
         }
 
+        background.Update()
         ui.Update()
 
         if yield() != nil {
@@ -1241,6 +1243,8 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     }
     var tface text.Face = face
 
+    background := MakeBackground()
+
     rootContainer := widget.NewContainer(
         widget.ContainerOpts.Layout(widget.NewRowLayout(
             widget.RowLayoutOpts.Direction(widget.DirectionVertical),
@@ -1250,7 +1254,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     )
 
     selectButton := makeButton("Select Song", tface, func (args *widget.ButtonClickedEventArgs) {
-        selectedSong := chooseSong(yield, engine)
+        selectedSong := chooseSong(yield, engine, background)
         if selectedSong != "" {
             playSong(yield, engine, selectedSong)
         }
@@ -1266,8 +1270,6 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     ui := ebitenui.UI{
         Container: rootContainer,
     }
-
-    background := MakeBackground()
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
