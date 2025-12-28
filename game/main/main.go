@@ -117,7 +117,7 @@ func (song *Song) Close() {
     }
 }
 
-func (song *Song) Update() {
+func (song *Song) Update(gamepadIds map[ebiten.GamepadID]struct{}) {
     song.DoSong.Do(func(){
         song.Song.Play()
         // engine.Guitar.Play()
@@ -125,6 +125,18 @@ func (song *Song) Update() {
 
     if song.StartTime.IsZero() {
         song.StartTime = time.Now()
+    }
+
+    for id := range gamepadIds {
+        maxButton := ebiten.GamepadButton(ebiten.GamepadButtonCount(id))
+        for button := ebiten.GamepadButton(0); button < maxButton; button++ {
+            if inpututil.IsGamepadButtonJustPressed(id, button) {
+                log.Printf("Pressed button %v on gamepad %v", button, id)
+            }
+            if inpututil.IsGamepadButtonJustReleased(id, button) {
+                log.Printf("Released button %v on gamepad %v", button, id)
+            }
+        }
     }
 
     for i := range song.Frets {
@@ -746,8 +758,20 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
     })
     defer engine.PopDrawer()
 
-    song.Update()
+    gamepadIds := make(map[ebiten.GamepadID]struct{})
+
+    song.Update(gamepadIds)
     for !song.Finished() {
+
+        newGamepadIDs := inpututil.AppendJustConnectedGamepadIDs(nil)
+        for _, id := range newGamepadIDs {
+            gamepadIds[id] = struct{}{}
+        }
+        for id := range gamepadIds {
+            if inpututil.IsGamepadJustDisconnected(id) {
+                delete(gamepadIds, id)
+            }
+        }
 
         keys := inpututil.AppendJustPressedKeys(nil)
         for _, key := range keys {
@@ -758,7 +782,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
             }
         }
 
-        song.Update()
+        song.Update(gamepadIds)
         if yield() != nil {
             break
         }
