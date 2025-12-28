@@ -842,12 +842,7 @@ func scanSongs(where string, depth int) []string {
     */
 }
 
-func loadPng(path string) (*ebiten.Image, error) {
-    file, err := os.Open(path)
-    if err != nil {
-        return nil, err
-    }
-    defer file.Close()
+func loadPng(file io.Reader) (*ebiten.Image, error) {
     img, err := png.Decode(file)
     if err != nil {
         return nil, err
@@ -855,17 +850,40 @@ func loadPng(path string) (*ebiten.Image, error) {
     return ebiten.NewImageFromImage(img), nil
 }
 
-func loadJpeg(path string) (*ebiten.Image, error) {
-    file, err := os.Open(path)
-    if err != nil {
-        return nil, err
-    }
-    defer file.Close()
+func loadJpeg(file io.Reader) (*ebiten.Image, error) {
     img, err := jpeg.Decode(file)
     if err != nil {
         return nil, err
     }
     return ebiten.NewImageFromImage(img), nil
+}
+
+func loadAlbumImage(songFS fs.FS) *ebiten.Image {
+    for _, path := range []string{"album.png", "album.jpg", "album.jpeg"} {
+
+        // FIXME: make this case insensitive
+        file1, err := songFS.Open(path)
+        if err == nil {
+            defer file1.Close()
+
+            newImage, err := loadPng(file1)
+            if err == nil {
+                return newImage
+            }
+
+        }
+
+        file2, err := songFS.Open(path)
+        if err == nil {
+            defer file2.Close()
+            newImage, err := loadJpeg(file2)
+            if err == nil {
+                return newImage
+            }
+        }
+    }
+
+    return ebiten.NewImage(1, 1)
 }
 
 func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
@@ -957,15 +975,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
             entry := args.Entry.(string)
             song = entry
 
-            path := filepath.Join(entry, "album.png")
-            newImage, err := loadPng(path)
-            if err != nil {
-                newImage, err = loadJpeg(path)
-                if err != nil {
-                    log.Printf("Failed to load album art from '%s': %v", path, err)
-                    newImage = ebiten.NewImage(1, 1)
-                }
-            }
+            newImage := loadAlbumImage(os.DirFS(song))
 
             oldAlbum := albumGraphic
             albumGraphic = widget.NewGraphic(
