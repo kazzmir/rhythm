@@ -1,7 +1,7 @@
 .PHONY: rhythm all
 
 rhythm:
-	go get ./...
+	go mod tidy
 	go build -o rhythm ./game/main
 
 vet:
