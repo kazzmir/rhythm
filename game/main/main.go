@@ -905,7 +905,7 @@ func loadAlbumImage(songFS fs.FS) *ebiten.Image {
 }
 
 func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
-    baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 200}
+    baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 80}
     return widget.NewButton(
         widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
         widget.ButtonOpts.Image(&widget.ButtonImage{
@@ -1117,7 +1117,7 @@ func (c *ColorHSV) Update(target ColorHSV) {
 
 func (c *ColorHSV) ToNRGBA() color.NRGBA {
     if !c.converted {
-        col, err := colorconv.HSVToColor(c.H, c.S, c.V)
+        col, err := colorconv.HSVToColor(c.H, c.S, c.V, 255)
         if err == nil {
             r, g, b, _ := col.RGBA()
             c.R = uint8(r >> 8)
@@ -1307,7 +1307,7 @@ func (engine *Engine) Draw(screen *ebiten.Image) {
     }
 }
 
-func brightenColor(c color.Color, amount float64) color.Color {
+func brightenColor(c color.NRGBA, amount float64) color.Color {
     h, s, v := colorconv.ColorToHSV(c)
 
     v = v + (1.0 - v) * amount
@@ -1321,7 +1321,7 @@ func brightenColor(c color.Color, amount float64) color.Color {
         s = 0.0
     }
 
-    out, err := colorconv.HSVToColor(h, s, v)
+    out, err := colorconv.HSVToColor(h, s, v, c.A)
     if err == nil {
         return out
     }
@@ -1329,11 +1329,11 @@ func brightenColor(c color.Color, amount float64) color.Color {
     return c
 }
 
-func darkenColor(c color.Color, amount float64) color.Color {
+func darkenColor(c color.NRGBA, amount float64) color.Color {
     h, s, v := colorconv.ColorToHSV(c)
     v = v * (1.0 - amount)
 
-    out, err := colorconv.HSVToColor(h, s, v)
+    out, err := colorconv.HSVToColor(h, s, v, c.A)
     if err == nil {
         return out
     }
@@ -1431,7 +1431,7 @@ func drawSong(screen *ebiten.Image, song *Song, font *text.GoTextFaceSource) {
                 var useColor color.Color = fretColor
 
                 if note.State == NoteStateMissed || (note.State == NoteStateHit && !note.Sustain) {
-                    useColor = darkenColor(useColor, 0.5)
+                    useColor = darkenColor(fretColor, 0.5)
                 }
 
                 vector.FillCircle(screen, float32(xFret), float32(y), noteSize, useColor, true)
