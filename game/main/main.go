@@ -822,7 +822,6 @@ func scanSongs(where string, depth int) []string {
             // might be a symlink to a directory
             info, err := fs.Stat(useFs, fullPath)
             if err == nil {
-                log.Printf("Path: %s, IsDir: %v", fullPath, info.IsDir())
                 if info.IsDir() {
                     if isSongDirectory(fullPath) {
                         paths = append(paths, fullPath)
