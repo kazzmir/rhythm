@@ -454,11 +454,7 @@ func loadSongInfo(file fs.File) SongInfo {
 }
 
 // notesData is assumed to be the contents of a MIDI file
-<<<<<<< HEAD
 func (song *Song) ReadNotes(notesData []byte, difficulty string, songLength time.Duration) error {
-=======
-func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
->>>>>>> a2b4dcd (some songs use note off)
 
     // FIXME: dire straits sultans of swing uses keys higher than the normal range
 
@@ -507,10 +503,7 @@ func (song *Song) ReadNotes(notesData []byte, difficulty string) error {
                         fret := &song.Frets[useFret]
                         fret.Notes = append(fret.Notes, Note{
                             Start: time.Microsecond * time.Duration(event.AbsMicroSeconds),
-<<<<<<< HEAD
                             End: songLength,
-=======
->>>>>>> a2b4dcd (some songs use note off)
                         })
                     } else {
                         log.Printf("Warning: Fret %d out of range for key %d", useFret, key)
