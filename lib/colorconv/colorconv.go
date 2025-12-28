@@ -42,12 +42,12 @@ func HSLToColor(h, s, l float64) (color.Color, error) {
 }
 
 //HSVToColor convert HSV triple into color.Color.
-func HSVToColor(h, s, v float64, a uint8) (color.Color, error) {
+func HSVToColor(h, s, v float64) (color.Color, error) {
 	r, g, b, err := HSVToRGB(h, s, v)
 	if err != nil {
 		return nil, err
 	}
-	return color.NRGBA{R: r, G: g, B: b, A: a}, nil
+	return color.RGBA{R: r, G: g, B: b, A: 255}, nil
 }
 
 //HexToColor convert Hex string into color.Color.

@@ -904,14 +904,26 @@ func loadAlbumImage(songFS fs.FS) *ebiten.Image {
     return ebiten.NewImage(1, 1)
 }
 
+func translucent(c color.Color, alpha int) color.NRGBA {
+    r, g, b, _ := c.RGBA()
+    return color.NRGBA{
+        R: uint8(r >> 8),
+        G: uint8(g >> 8),
+        B: uint8(b >> 8),
+        A: uint8(alpha),
+    }
+}
+
 func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
-    baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 80}
+    baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
+    borderColor := color.NRGBA{R: 250, G: 250, B: 250, A: 100}
+    alpha := 120
     return widget.NewButton(
         widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
         widget.ButtonOpts.Image(&widget.ButtonImage{
-            Idle: ui_image.NewNineSliceColor(darkenColor(baseColor, 0.4)),
-            Hover: ui_image.NewNineSliceColor(baseColor),
-            Pressed: ui_image.NewNineSliceColor(brightenColor(baseColor, 0.4)),
+            Idle: ui_image.NewBorderedNineSliceColor(translucent(darkenColor(baseColor, 0.4), alpha), borderColor, 1),
+            Hover: ui_image.NewBorderedNineSliceColor(translucent(baseColor, alpha), borderColor, 1),
+            Pressed: ui_image.NewBorderedNineSliceColor(translucent(brightenColor(baseColor, 0.4), alpha), borderColor, 1),
         }),
         widget.ButtonOpts.Text(text, &tface, &widget.ButtonTextColor{
             Idle: color.White,
@@ -1119,7 +1131,7 @@ func (c *ColorHSV) Update(target ColorHSV) {
 
 func (c *ColorHSV) ToNRGBA() color.NRGBA {
     if !c.converted {
-        col, err := colorconv.HSVToColor(c.H, c.S, c.V, 255)
+        col, err := colorconv.HSVToColor(c.H, c.S, c.V)
         if err == nil {
             r, g, b, _ := col.RGBA()
             c.R = uint8(r >> 8)
@@ -1323,7 +1335,7 @@ func brightenColor(c color.NRGBA, amount float64) color.Color {
         s = 0.0
     }
 
-    out, err := colorconv.HSVToColor(h, s, v, c.A)
+    out, err := colorconv.HSVToColor(h, s, v)
     if err == nil {
         return out
     }
@@ -1335,7 +1347,7 @@ func darkenColor(c color.NRGBA, amount float64) color.Color {
     h, s, v := colorconv.ColorToHSV(c)
     v = v * (1.0 - amount)
 
-    out, err := colorconv.HSVToColor(h, s, v, c.A)
+    out, err := colorconv.HSVToColor(h, s, v)
     if err == nil {
         return out
     }
