@@ -914,11 +914,16 @@ func translucent(c color.Color, alpha int) color.NRGBA {
     }
 }
 
-func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
+func makeButton(text string, tface text.Face, maxWidth int, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
     baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
     borderColor := color.NRGBA{R: 250, G: 250, B: 250, A: 100}
     alpha := 120
     return widget.NewButton(
+        widget.ButtonOpts.WidgetOpts(
+            widget.WidgetOpts.LayoutData(widget.GridLayoutData{
+                MaxWidth: maxWidth,
+            }),
+        ),
         widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
         widget.ButtonOpts.Image(&widget.ButtonImage{
             Idle: ui_image.NewBorderedNineSliceColor(translucent(darkenColor(baseColor, 0.4), alpha), borderColor, 1),
@@ -1028,13 +1033,13 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
         songList.AddEntry(songPath)
     }
 
-    playButton := makeButton("Play Selected Song", tface, func (args *widget.ButtonClickedEventArgs) {
+    playButton := makeButton("Play Selected Song", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         if song != "" {
             chosen = true
         }
     })
 
-    backButton := makeButton("Back", tface, func (args *widget.ButtonClickedEventArgs) {
+    backButton := makeButton("Back", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         song = ""
         chosen = true
     })
@@ -1257,6 +1262,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
 
     background := MakeBackground()
 
+    /*
     rootContainer := widget.NewContainer(
         widget.ContainerOpts.Layout(widget.NewRowLayout(
             widget.RowLayoutOpts.Direction(widget.DirectionVertical),
@@ -1264,8 +1270,18 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
             widget.RowLayoutOpts.Padding(&widget.Insets{Top: 10, Left: 10, Right: 10}),
         )),
     )
+    */
 
-    selectButton := makeButton("Select Song", tface, func (args *widget.ButtonClickedEventArgs) {
+    rootContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewGridLayout(
+            widget.GridLayoutOpts.Columns(1),
+            widget.GridLayoutOpts.DefaultStretch(true, false),
+            widget.GridLayoutOpts.Spacing(0, 10),
+            widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
+        )),
+    )
+
+    selectButton := makeButton("Select Song", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         selectedSong := chooseSong(yield, engine, background)
         if selectedSong != "" {
             playSong(yield, engine, selectedSong)
@@ -1275,7 +1291,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     selectButton.Focus(true)
     rootContainer.AddChild(selectButton)
 
-    rootContainer.AddChild(makeButton("Quit", tface, func (args *widget.ButtonClickedEventArgs) {
+    rootContainer.AddChild(makeButton("Quit", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         quit = true
     }))
 
