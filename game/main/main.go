@@ -310,7 +310,7 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
             return err
         }
 
-        if !d.IsDir() && filepath.Base(path) == name {
+        if !d.IsDir() && strings.ToLower(filepath.Base(path)) == strings.ToLower(name) {
             file, err := basefs.Open(path)
             if err != nil {
                 return err
@@ -398,17 +398,31 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         }
     }
 
-    guitarFile, err := findFile(basefs, "guitar.ogg")
-    if err != nil {
-        return nil, fmt.Errorf("Unable to find guitar.ogg in song directory '%v': %v", songDirectory, err)
-    }
-    defer guitarFile.Close()
-    guitarPlayer, _, cleanup, err := loadOgg(audioContext, guitarFile, "guitar.ogg")
-    if err != nil {
-        return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.ogg", err)
-    }
+    var guitarPlayer *audio.Player
 
-    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
+    guitarFile, err := findFile(basefs, "guitar.ogg")
+    if err == nil {
+        defer guitarFile.Close()
+        var cleanup func()
+        guitarPlayer, _, cleanup, err = loadOgg(audioContext, guitarFile, "guitar.ogg")
+        if err != nil {
+            return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.ogg", err)
+        }
+        song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
+    } else {
+        guitarFile, err = findFile(basefs, "guitar.mp3")
+        if err == nil {
+            defer guitarFile.Close()
+            var cleanup func()
+            guitarPlayer, _, cleanup, err = loadMp3(audioContext, guitarFile, "guitar.mp3")
+            if err != nil {
+                return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.mp3", err)
+            }
+            song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
+        } else {
+            return nil, fmt.Errorf("Unable to find guitar.ogg in song directory '%v': %v", songDirectory, err)
+        }
+    }
 
     song.SongLength = songLength
     song.Song = songPlayer
@@ -755,10 +769,10 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
 
 // true if the directory contains song.ogg, guitar.ogg, and notes.mid
 func isSongDirectory(path string) bool {
-    requiredFiles := make(map[string]bool)
-    requiredFiles["song.ogg"] = false
-    requiredFiles["guitar.ogg"] = false
-    requiredFiles["notes.mid"] = false
+    hasSong := false
+    hasGuitar := false
+    hasNotes := false
+
     entries, err := os.ReadDir(path)
     if err != nil {
         return false
@@ -770,18 +784,14 @@ func isSongDirectory(path string) bool {
         }
 
         name := strings.ToLower(entry.Name())
-        if _, ok := requiredFiles[name]; ok {
-            requiredFiles[name] = true
+        switch name {
+            case "song.ogg", "song.mp3": hasSong = true
+            case "guitar.ogg", "guitar.mp3": hasGuitar = true
+            case "notes.mid": hasNotes = true
         }
     }
 
-    for _, found := range requiredFiles {
-        if !found {
-            return false
-        }
-    }
-
-    return true
+    return hasSong && hasGuitar && hasNotes
 }
 
 func scanSongs() []string {
