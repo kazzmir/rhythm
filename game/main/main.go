@@ -890,6 +890,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
             }),
             widget.WidgetOpts.MinSize(0, 200),
         )),
+        widget.ListOpts.SelectFocus(),
         widget.ListOpts.EntryLabelFunc(
             func (e any) string {
                 name := e.(string)
@@ -930,6 +931,8 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
     rootContainer.AddChild(playButton)
     rootContainer.AddChild(backButton)
 
+    songList.Focus(true)
+
     ui := ebitenui.UI{
         Container: rootContainer,
     }
@@ -949,6 +952,18 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
             switch key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
                     return ""
+                case ebiten.KeyEnter:
+                    if song != "" {
+                        return song
+                    }
+                case ebiten.KeyPageDown:
+                    for range 10 {
+                        songList.FocusNext()
+                    }
+                case ebiten.KeyPageUp:
+                    for range 10 {
+                        songList.FocusPrevious()
+                    }
             }
         }
 
