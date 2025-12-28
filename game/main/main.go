@@ -765,6 +765,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
 
         newGamepadIDs := inpututil.AppendJustConnectedGamepadIDs(nil)
         for _, id := range newGamepadIDs {
+            log.Printf("Gamepad connected: %v", id)
             gamepadIds[id] = struct{}{}
         }
         for id := range gamepadIds {
