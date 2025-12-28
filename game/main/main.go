@@ -13,6 +13,7 @@ import (
     "archive/zip"
     "image/color"
     "image/png"
+    "image/jpeg"
     "path/filepath"
     "bytes"
     "sync"
@@ -38,7 +39,7 @@ import (
     ui_image "github.com/ebitenui/ebitenui/image"
 )
 
-const ScreenWidth = 1200
+const ScreenWidth = 1400
 const ScreenHeight = 1000
 
 const NoteThresholdHigh = time.Millisecond * 250
@@ -824,6 +825,32 @@ func scanSongs() []string {
     */
 }
 
+func loadPng(path string) (*ebiten.Image, error) {
+    file, err := os.Open(path)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+    img, err := png.Decode(file)
+    if err != nil {
+        return nil, err
+    }
+    return ebiten.NewImageFromImage(img), nil
+}
+
+func loadJpeg(path string) (*ebiten.Image, error) {
+    file, err := os.Open(path)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+    img, err := jpeg.Decode(file)
+    if err != nil {
+        return nil, err
+    }
+    return ebiten.NewImageFromImage(img), nil
+}
+
 func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
     baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
     return widget.NewButton(
@@ -870,6 +897,18 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         return cmp.Compare(ax, bx)
     })
 
+    songContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewRowLayout(
+            widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+            widget.RowLayoutOpts.Spacing(12),
+        )),
+    )
+
+    albumImage := ebiten.NewImage(1, 1)
+    albumGraphic := widget.NewGraphic(
+        widget.GraphicOpts.Image(albumImage),
+    )
+
     songList := widget.NewList(
         widget.ListOpts.EntryFontFace(&tface),
         widget.ListOpts.SliderParams(&widget.SliderParams{
@@ -900,6 +939,22 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         widget.ListOpts.EntrySelectedHandler(func (args *widget.ListEntrySelectedEventArgs) {
             entry := args.Entry.(string)
             song = entry
+
+            path := filepath.Join(entry, "album.png")
+            newImage, err := loadPng(path)
+            if err != nil {
+                newImage, err = loadJpeg(path)
+                if err != nil {
+                    log.Printf("Failed to load album art from '%s': %v", path, err)
+                    newImage = ebiten.NewImage(1, 1)
+                }
+            }
+
+            oldAlbum := albumGraphic
+            albumGraphic = widget.NewGraphic(
+                widget.GraphicOpts.Image(newImage),
+            )
+            songContainer.ReplaceChild(oldAlbum, albumGraphic)
         }),
         widget.ListOpts.EntryColor(&widget.ListEntryColor{
             Selected: color.NRGBA{R: 100, G: 150, B: 200, A: 255},
@@ -927,7 +982,10 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
         chosen = true
     })
 
-    rootContainer.AddChild(songList)
+    songContainer.AddChild(songList)
+    songContainer.AddChild(albumGraphic)
+
+    rootContainer.AddChild(songContainer)
     rootContainer.AddChild(playButton)
     rootContainer.AddChild(backButton)
 
