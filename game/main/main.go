@@ -15,6 +15,7 @@ import (
     "image/png"
     "image/jpeg"
     "path/filepath"
+    "math/rand/v2"
     "bytes"
     "sync"
     "strings"
@@ -663,7 +664,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
                 return err
             }
 
-            return runMenu(engine, yield)
+            return mainMenu(engine, yield)
         }),
     }
 
@@ -904,7 +905,7 @@ func loadAlbumImage(songFS fs.FS) *ebiten.Image {
 }
 
 func makeButton(text string, tface text.Face, onClick func(args *widget.ButtonClickedEventArgs)) *widget.Button {
-    baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
+    baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 200}
     return widget.NewButton(
         widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
         widget.ButtonOpts.Image(&widget.ButtonImage{
@@ -1079,7 +1080,159 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine) string {
     return song
 }
 
-func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
+type ColorHSV struct {
+    H, S, V float64 // h 0-360, s 0-1, v 0-1
+
+    R, G, B uint8
+    converted bool
+}
+
+func (c *ColorHSV) Update(target ColorHSV) {
+    changed := false
+
+    hStep := 0.5
+    sStep := 0.001
+    vStep := 0.001
+
+    update := func(source *float64, target float64, step float64) {
+        if *source <= target - step {
+            *source += step
+            changed = true
+        } else if *source >= target + step {
+            *source -= step
+            changed = true
+        } else {
+            *source = target
+        }
+    }
+
+    update(&c.H, target.H, hStep)
+    update(&c.S, target.S, sStep)
+    update(&c.V, target.V, vStep)
+
+    if changed {
+        c.converted = false
+    }
+}
+
+func (c *ColorHSV) ToNRGBA() color.NRGBA {
+    if !c.converted {
+        col, err := colorconv.HSVToColor(c.H, c.S, c.V)
+        if err == nil {
+            r, g, b, _ := col.RGBA()
+            c.R = uint8(r >> 8)
+            c.G = uint8(g >> 8)
+            c.B = uint8(b >> 8)
+            c.converted = true
+        }
+    }
+
+    return color.NRGBA{R: c.R, G: c.G, B: c.B, A: 255}
+}
+
+type Background struct {
+    C1 ColorHSV
+    C2 ColorHSV
+    C3 ColorHSV
+    C4 ColorHSV
+
+    ChangeC1 ColorHSV
+    ChangeC2 ColorHSV
+    ChangeC3 ColorHSV
+    ChangeC4 ColorHSV
+
+    Source *ebiten.Image
+    counter uint64
+}
+
+func makeRandomColor() ColorHSV {
+    return ColorHSV{
+        H: rand.Float64() * 360.0,
+        S: 0.2 + rand.Float64() * 0.4,
+        V: 0.2 + rand.Float64() * 0.4,
+    }
+}
+
+func MakeBackground() *Background {
+    white := ebiten.NewImage(1, 1)
+    white.Fill(color.White)
+
+    return &Background{
+        C1: makeRandomColor(),
+        C2: makeRandomColor(),
+        C3: makeRandomColor(),
+        C4: makeRandomColor(),
+        ChangeC1: makeRandomColor(),
+        ChangeC2: makeRandomColor(),
+        ChangeC3: makeRandomColor(),
+        ChangeC4: makeRandomColor(),
+        Source: white,
+    }
+}
+
+func (background *Background) Update() {
+    background.counter += 1
+    if background.counter % 600 == 0 {
+        background.ChangeC1 = makeRandomColor()
+        background.ChangeC2 = makeRandomColor()
+        background.ChangeC3 = makeRandomColor()
+        background.ChangeC4 = makeRandomColor()
+    }
+
+    background.C1.Update(background.ChangeC1)
+    background.C2.Update(background.ChangeC2)
+    background.C3.Update(background.ChangeC3)
+    background.C4.Update(background.ChangeC4)
+}
+
+func (background *Background) Draw(screen *ebiten.Image) {
+    vertices := []ebiten.Vertex{
+        ebiten.Vertex{
+            DstX: 0,
+            DstY: 0,
+            SrcX: 0,
+            SrcY: 0,
+            ColorR: float32(background.C1.ToNRGBA().R) / 255.0,
+            ColorG: float32(background.C1.ToNRGBA().G) / 255.0,
+            ColorB: float32(background.C1.ToNRGBA().B) / 255.0,
+            ColorA: 1.0,
+        },
+        ebiten.Vertex{
+            DstX: float32(ScreenWidth),
+            DstY: 0,
+            SrcX: 0,
+            SrcY: 0,
+            ColorR: float32(background.C2.ToNRGBA().R) / 255.0,
+            ColorG: float32(background.C2.ToNRGBA().G) / 255.0,
+            ColorB: float32(background.C2.ToNRGBA().B) / 255.0,
+            ColorA: 1.0,
+        },
+        ebiten.Vertex{
+            DstX: float32(ScreenWidth),
+            DstY: float32(ScreenHeight),
+            SrcX: 0,
+            SrcY: 0,
+            ColorR: float32(background.C3.ToNRGBA().R) / 255.0,
+            ColorG: float32(background.C3.ToNRGBA().G) / 255.0,
+            ColorB: float32(background.C3.ToNRGBA().B) / 255.0,
+            ColorA: 1.0,
+        },
+        ebiten.Vertex{
+            DstX: 0,
+            DstY: float32(ScreenHeight),
+            SrcX: 0,
+            SrcY: 0,
+            ColorR: float32(background.C4.ToNRGBA().R) / 255.0,
+            ColorG: float32(background.C4.ToNRGBA().G) / 255.0,
+            ColorB: float32(background.C4.ToNRGBA().B) / 255.0,
+            ColorA: 1.0,
+        },
+    }
+
+    screen.DrawTriangles(vertices, []uint16{0, 1, 2, 2, 3, 0}, background.Source, nil)
+}
+
+func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     quit := false
 
     face := &text.GoTextFace{
@@ -1114,7 +1267,10 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
         Container: rootContainer,
     }
 
+    background := MakeBackground()
+
     engine.PushDrawer(func(screen *ebiten.Image) {
+        background.Draw(screen)
         ui.Draw(screen)
     })
     defer engine.PopDrawer()
@@ -1133,6 +1289,7 @@ func runMenu(engine *Engine, yield coroutine.YieldFunc) error {
             }
         }
 
+        background.Update()
         ui.Update()
 
         if yield() != nil {
