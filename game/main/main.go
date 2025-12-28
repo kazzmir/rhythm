@@ -859,26 +859,43 @@ func loadJpeg(file io.Reader) (*ebiten.Image, error) {
 }
 
 func loadAlbumImage(songFS fs.FS) *ebiten.Image {
-    for _, path := range []string{"album.png", "album.jpg", "album.jpeg"} {
 
-        // FIXME: make this case insensitive
-        file1, err := songFS.Open(path)
-        if err == nil {
-            defer file1.Close()
+    possible := map[string]bool{
+        "album.png": true,
+        "album.jpg": true,
+        "album.jpeg": true,
+    }
 
-            newImage, err := loadPng(file1)
-            if err == nil {
-                return newImage
-            }
+    entries, err := fs.ReadDir(songFS, ".")
+    if err != nil {
+        return ebiten.NewImage(1, 1)
+    }
 
+    for _, entry := range entries {
+        name := strings.ToLower(entry.Name())
+        if entry.IsDir() {
+            continue
         }
 
-        file2, err := songFS.Open(path)
-        if err == nil {
-            defer file2.Close()
-            newImage, err := loadJpeg(file2)
+        if possible[name] {
+            file1, err := songFS.Open(entry.Name())
             if err == nil {
-                return newImage
+                defer file1.Close()
+
+                newImage, err := loadPng(file1)
+                if err == nil {
+                    return newImage
+                }
+
+            }
+
+            file2, err := songFS.Open(entry.Name())
+            if err == nil {
+                defer file2.Close()
+                newImage, err := loadJpeg(file2)
+                if err == nil {
+                    return newImage
+                }
             }
         }
     }
