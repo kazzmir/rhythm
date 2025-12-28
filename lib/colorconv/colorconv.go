@@ -47,7 +47,7 @@ func HSVToColor(h, s, v float64) (color.Color, error) {
 	if err != nil {
 		return nil, err
 	}
-	return color.RGBA{R: r, G: g, B: b, A: 0xff}, nil
+	return color.RGBA{R: r, G: g, B: b, A: 255}, nil
 }
 
 //HexToColor convert Hex string into color.Color.
