@@ -1111,7 +1111,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
         widget.ListOpts.HideHorizontalSlider(),
         widget.ListOpts.ContainerOpts(widget.ContainerOpts.WidgetOpts(
             widget.WidgetOpts.LayoutData(widget.RowLayoutData{
-                MaxHeight: 600,
+                MaxHeight: ScreenHeight - 20,
             }),
             widget.WidgetOpts.MinSize(0, 200),
         )),
@@ -1139,7 +1139,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
             Unselected: color.NRGBA{R: 50, G: 50, B: 50, A: 255},
         }),
         widget.ListOpts.ScrollContainerImage(&widget.ScrollContainerImage{
-            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 220, G: 220, B: 220, A: 255}),
+            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 220, G: 220, B: 220, A: 80}),
             Disabled: ui_image.NewNineSliceColor(color.NRGBA{R: 180, G: 180, B: 180, A: 255}),
             Mask: ui_image.NewNineSliceColor(color.NRGBA{R: 32, G: 32, B: 32, A: 255}),
         }),
@@ -1149,11 +1149,13 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
         songList.AddEntry(songPath)
     }
 
+    /*
     playButton := makeButton("Play Selected Song", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         if song != "" {
             chosen = true
         }
     })
+    */
 
     backButton := makeButton("Back", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         song = ""
@@ -1164,7 +1166,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
     songContainer.AddChild(albumGraphic)
 
     rootContainer.AddChild(songContainer)
-    rootContainer.AddChild(playButton)
+    // rootContainer.AddChild(playButton)
     rootContainer.AddChild(backButton)
 
     songList.Focus(true)
@@ -1175,10 +1177,6 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
-        var textOptions text.DrawOptions
-        textOptions.GeoM.Translate(10, 10)
-        text.Draw(screen, "Select a song", face, &textOptions)
-
         ui.Draw(screen)
     })
     defer engine.PopDrawer()
@@ -1373,10 +1371,11 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     var tface text.Face = face
 
     rootContainer := widget.NewContainer(
-        widget.ContainerOpts.Layout(widget.NewRowLayout(
-            widget.RowLayoutOpts.Direction(widget.DirectionVertical),
-            widget.RowLayoutOpts.Spacing(12),
-            widget.RowLayoutOpts.Padding(&widget.Insets{Top: 10, Left: 10, Right: 10}),
+        widget.ContainerOpts.Layout(widget.NewGridLayout(
+            widget.GridLayoutOpts.Columns(1),
+            widget.GridLayoutOpts.DefaultStretch(true, false),
+            widget.GridLayoutOpts.Spacing(0, 10),
+            widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
         )),
     )
 
