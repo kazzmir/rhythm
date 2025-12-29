@@ -69,7 +69,40 @@ type Fret struct {
 
     // time when this key was pressed (or zero if not pressed)
     Press time.Time
-    Key ebiten.Key
+    // Key ebiten.Key
+    InputAction InputAction
+}
+
+type InputAction int
+const (
+    InputActionNone InputAction = iota
+    InputActionGreen
+    InputActionRed
+    InputActionYellow
+    InputActionBlue
+    InputActionOrange
+    InputActionStrumUp
+    InputActionStrumDown
+)
+
+type Input struct {
+    GamepadID ebiten.GamepadID
+    GamepadButtons map[InputAction]ebiten.GamepadButton
+    KeyboardButtons map[InputAction]ebiten.Key
+}
+
+func MakeDefaultInput() *Input {
+    return &Input{
+        KeyboardButtons: map[InputAction]ebiten.Key{
+            InputActionGreen: ebiten.Key1,
+            InputActionRed: ebiten.Key2,
+            InputActionYellow: ebiten.Key3,
+            InputActionBlue: ebiten.Key4,
+            InputActionOrange: ebiten.Key5,
+            InputActionStrumUp: ebiten.KeyUp,
+            InputActionStrumDown: ebiten.KeyDown,
+        },
+    }
 }
 
 type SongInfo struct {
@@ -117,7 +150,7 @@ func (song *Song) Close() {
     }
 }
 
-func (song *Song) Update(gamepadIds map[ebiten.GamepadID]struct{}) {
+func (song *Song) Update(input *Input) {
     song.DoSong.Do(func(){
         song.Song.Play()
         song.Guitar.Play()
@@ -127,6 +160,7 @@ func (song *Song) Update(gamepadIds map[ebiten.GamepadID]struct{}) {
         song.StartTime = time.Now()
     }
 
+    /*
     for id := range gamepadIds {
         maxButton := ebiten.GamepadButton(ebiten.GamepadButtonCount(id))
         for button := ebiten.GamepadButton(0); button < maxButton; button++ {
@@ -138,13 +172,24 @@ func (song *Song) Update(gamepadIds map[ebiten.GamepadID]struct{}) {
             }
         }
     }
+    */
 
     for i := range song.Frets {
         fret := &song.Frets[i]
-        if inpututil.IsKeyJustPressed(fret.Key) {
+        key := input.KeyboardButtons[fret.InputAction]
+        if inpututil.IsKeyJustPressed(key) {
             fret.Press = time.Now()
-        } else if inpututil.IsKeyJustReleased(fret.Key) {
+        } else if inpututil.IsKeyJustReleased(key) {
             fret.Press = time.Time{}
+        }
+
+        if input.GamepadID != ebiten.GamepadID(0) {
+            button := input.GamepadButtons[fret.InputAction]
+            if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
+                fret.Press = time.Now()
+            } else if inpututil.IsGamepadButtonJustReleased(input.GamepadID, button) {
+                fret.Press = time.Time{}
+            }
         }
     }
 
@@ -178,7 +223,14 @@ func (song *Song) Update(gamepadIds map[ebiten.GamepadID]struct{}) {
             }
         }
 
-        pressed := inpututil.IsKeyJustPressed(fret.Key)
+        key := input.KeyboardButtons[fret.InputAction]
+        pressed := inpututil.IsKeyJustPressed(key)
+        if input.GamepadID != ebiten.GamepadID(0) {
+            button := input.GamepadButtons[fret.InputAction]
+            if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
+                pressed = true
+            }
+        }
 
         needKey := false
 
@@ -358,11 +410,11 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
         Frets: make([]Fret, 5),
     }
 
-    song.Frets[0].Key = ebiten.Key1
-    song.Frets[1].Key = ebiten.Key2
-    song.Frets[2].Key = ebiten.Key3
-    song.Frets[3].Key = ebiten.Key4
-    song.Frets[4].Key = ebiten.Key5
+    song.Frets[0].InputAction = InputActionGreen
+    song.Frets[1].InputAction = InputActionRed
+    song.Frets[2].InputAction = InputActionYellow
+    song.Frets[3].InputAction = InputActionBlue
+    song.Frets[4].InputAction = InputActionOrange
     // song.Frets[5].Key = ebiten.Key6
 
     difficulty := "easy"
@@ -602,6 +654,8 @@ type Engine struct {
 
     Drawers []func(screen *ebiten.Image)
 
+    Input *Input
+
     Coroutine *coroutine.Coroutine
 
     GamepadIds map[ebiten.GamepadID]struct{}
@@ -679,6 +733,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         AudioContext: audioContext,
         Font: font,
         GamepadIds: make(map[ebiten.GamepadID]struct{}),
+        Input: MakeDefaultInput(),
         Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
             if songDirectory != "" {
                 err := playSong(yield, engine, songDirectory)
@@ -740,6 +795,20 @@ func (engine *Engine) Update() error {
     for _, id := range newGamepadIDs {
         log.Printf("Gamepad connected: %v '%s'", id, ebiten.GamepadName(id))
         engine.GamepadIds[id] = struct{}{}
+
+        if engine.Input.GamepadID == ebiten.GamepadID(0) {
+            engine.Input.GamepadID = id
+            // works for PDP Rock Band 4 Jaguar
+            engine.Input.GamepadButtons = map[InputAction]ebiten.GamepadButton{
+                InputActionGreen: ebiten.GamepadButton3,
+                InputActionRed: ebiten.GamepadButton4,
+                InputActionYellow: ebiten.GamepadButton5,
+                InputActionBlue: ebiten.GamepadButton6,
+                InputActionOrange: ebiten.GamepadButton7,
+                InputActionStrumUp: ebiten.GamepadButton13,
+                InputActionStrumDown: ebiten.GamepadButton15,
+            }
+        }
     }
     for id := range engine.GamepadIds {
         if inpututil.IsGamepadJustDisconnected(id) {
@@ -778,7 +847,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
     })
     defer engine.PopDrawer()
 
-    song.Update(engine.GamepadIds)
+    song.Update(engine.Input)
     for !song.Finished() {
 
         keys := inpututil.AppendJustPressedKeys(nil)
@@ -790,7 +859,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
             }
         }
 
-        song.Update(engine.GamepadIds)
+        song.Update(engine.Input)
         if yield() != nil {
             break
         }
