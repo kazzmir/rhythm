@@ -101,7 +101,7 @@ func MakeDefaultInput() *Input {
             InputActionBlue: ebiten.Key4,
             InputActionOrange: ebiten.Key5,
             InputActionStrumUp: ebiten.KeyUp,
-            InputActionStrumDown: ebiten.KeyDown,
+            InputActionStrumDown: ebiten.KeySpace,
         },
     }
 }
@@ -198,9 +198,18 @@ func (song *Song) Update(input *Input) {
     stopGuitar := false
     changeGuitar := false
 
+    // when true, we don't need to strum
+    allTapsMode := false
+
     forceMiss := false
 
     var notesHit []*Note
+
+    strummed := inpututil.IsKeyJustPressed(input.KeyboardButtons[InputActionStrumDown])
+    if input.HasGamepad {
+        button := input.GamepadButtons[InputActionStrumDown]
+        strummed = strummed || inpututil.IsGamepadButtonJustPressed(input.GamepadID, button)
+    }
 
     delta := time.Since(song.StartTime)
     for i := range song.Frets {
@@ -224,13 +233,19 @@ func (song *Song) Update(input *Input) {
             }
         }
 
-        key := input.KeyboardButtons[fret.InputAction]
-        pressed := inpututil.IsKeyJustPressed(key)
-        if input.HasGamepad {
-            button := input.GamepadButtons[fret.InputAction]
-            if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
-                pressed = true
+        pressed := false
+
+        if allTapsMode {
+            key := input.KeyboardButtons[fret.InputAction]
+            pressed = inpututil.IsKeyJustPressed(key)
+            if input.HasGamepad {
+                button := input.GamepadButtons[fret.InputAction]
+                if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
+                    pressed = true
+                }
             }
+        } else {
+            pressed = !fret.Press.IsZero() && strummed
         }
 
         needKey := false
