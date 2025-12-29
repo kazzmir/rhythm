@@ -597,6 +597,8 @@ type Engine struct {
     Drawers []func(screen *ebiten.Image)
 
     Coroutine *coroutine.Coroutine
+
+    GamepadIds map[ebiten.GamepadID]struct{}
 }
 
 func (engine *Engine) PushDrawer(drawer func(screen *ebiten.Image)) {
@@ -670,6 +672,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
     engine = &Engine{
         AudioContext: audioContext,
         Font: font,
+        GamepadIds: make(map[ebiten.GamepadID]struct{}),
         Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
             if songDirectory != "" {
                 err := playSong(yield, engine, songDirectory)
@@ -727,6 +730,17 @@ func (engine *Engine) Update() error {
         }
     }
 
+    newGamepadIDs := inpututil.AppendJustConnectedGamepadIDs(nil)
+    for _, id := range newGamepadIDs {
+        log.Printf("Gamepad connected: %v '%s'", id, ebiten.GamepadName(id))
+        engine.GamepadIds[id] = struct{}{}
+    }
+    for id := range engine.GamepadIds {
+        if inpututil.IsGamepadJustDisconnected(id) {
+            delete(engine.GamepadIds, id)
+        }
+    }
+
     if ebiten.IsWindowBeingClosed() {
         engine.Coroutine.Stop()
     }
@@ -758,21 +772,8 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
     })
     defer engine.PopDrawer()
 
-    gamepadIds := make(map[ebiten.GamepadID]struct{})
-
-    song.Update(gamepadIds)
+    song.Update(engine.GamepadIds)
     for !song.Finished() {
-
-        newGamepadIDs := inpututil.AppendJustConnectedGamepadIDs(nil)
-        for _, id := range newGamepadIDs {
-            log.Printf("Gamepad connected: %v", id)
-            gamepadIds[id] = struct{}{}
-        }
-        for id := range gamepadIds {
-            if inpututil.IsGamepadJustDisconnected(id) {
-                delete(gamepadIds, id)
-            }
-        }
 
         keys := inpututil.AppendJustPressedKeys(nil)
         for _, key := range keys {
@@ -783,7 +784,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error 
             }
         }
 
-        song.Update(gamepadIds)
+        song.Update(engine.GamepadIds)
         if yield() != nil {
             break
         }
