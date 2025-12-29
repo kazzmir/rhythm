@@ -1060,13 +1060,9 @@ func makeButton(text string, tface text.Face, maxWidth int, onClick func(args *w
     )
 }
 
-func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Background) string {
+func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace) string {
     chosen := false
 
-    face := &text.GoTextFace{
-        Source: engine.Font,
-        Size: 24,
-    }
     var tface text.Face = face
 
     song := ""
@@ -1115,7 +1111,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
         widget.ListOpts.HideHorizontalSlider(),
         widget.ListOpts.ContainerOpts(widget.ContainerOpts.WidgetOpts(
             widget.WidgetOpts.LayoutData(widget.RowLayoutData{
-                MaxHeight: 600,
+                MaxHeight: ScreenHeight - 20,
             }),
             widget.WidgetOpts.MinSize(0, 200),
         )),
@@ -1143,7 +1139,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
             Unselected: color.NRGBA{R: 50, G: 50, B: 50, A: 255},
         }),
         widget.ListOpts.ScrollContainerImage(&widget.ScrollContainerImage{
-            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 220, G: 220, B: 220, A: 255}),
+            Idle: ui_image.NewNineSliceColor(color.NRGBA{R: 220, G: 220, B: 220, A: 80}),
             Disabled: ui_image.NewNineSliceColor(color.NRGBA{R: 180, G: 180, B: 180, A: 255}),
             Mask: ui_image.NewNineSliceColor(color.NRGBA{R: 32, G: 32, B: 32, A: 255}),
         }),
@@ -1153,11 +1149,13 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
         songList.AddEntry(songPath)
     }
 
+    /*
     playButton := makeButton("Play Selected Song", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         if song != "" {
             chosen = true
         }
     })
+    */
 
     backButton := makeButton("Back", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         song = ""
@@ -1168,7 +1166,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
     songContainer.AddChild(albumGraphic)
 
     rootContainer.AddChild(songContainer)
-    rootContainer.AddChild(playButton)
+    // rootContainer.AddChild(playButton)
     rootContainer.AddChild(backButton)
 
     songList.Focus(true)
@@ -1179,10 +1177,6 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
-        var textOptions text.DrawOptions
-        textOptions.GeoM.Translate(10, 10)
-        text.Draw(screen, "Select a song", face, &textOptions)
-
         ui.Draw(screen)
     })
     defer engine.PopDrawer()
@@ -1371,12 +1365,87 @@ func (background *Background) Draw(screen *ebiten.Image) {
     screen.DrawTriangles(vertices, []uint16{0, 1, 2, 2, 3, 0}, background.Source, nil)
 }
 
+func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace) {
+    quit := false
+
+    var tface text.Face = face
+
+    rootContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewGridLayout(
+            widget.GridLayoutOpts.Columns(1),
+            widget.GridLayoutOpts.DefaultStretch(true, false),
+            widget.GridLayoutOpts.Spacing(0, 10),
+            widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
+        )),
+    )
+
+    var fullscreenButton *widget.Button
+
+    var makeFullscreenButton func() *widget.Button
+
+    maxButtonWidth := 250
+
+    makeFullscreenButton = func() *widget.Button {
+        oldButton := fullscreenButton
+        if ebiten.IsFullscreen() {
+            fullscreenButton = makeButton("Windowed Mode", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
+                ebiten.SetFullscreen(false)
+                makeFullscreenButton()
+            })
+        } else {
+            fullscreenButton = makeButton("Fullscreen", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
+                ebiten.SetFullscreen(true)
+                makeFullscreenButton()
+            })
+        }
+        rootContainer.ReplaceChild(oldButton, fullscreenButton)
+        fullscreenButton.Focus(true)
+        return fullscreenButton
+    }
+
+    rootContainer.AddChild(makeFullscreenButton())
+
+    rootContainer.AddChild(makeButton("Back", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
+        quit = true
+    }))
+
+    ui := ebitenui.UI{
+        Container: rootContainer,
+    }
+
+    engine.PushDrawer(func(screen *ebiten.Image) {
+        background.Draw(screen)
+        ui.Draw(screen)
+    })
+    defer engine.PopDrawer()
+
+    for !quit {
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    quit = true
+                case ebiten.KeyDown:
+                    ui.ChangeFocus(widget.FOCUS_NEXT)
+                case ebiten.KeyUp:
+                    ui.ChangeFocus(widget.FOCUS_PREVIOUS)
+            }
+        }
+
+        background.Update()
+        ui.Update()
+        if yield() != nil {
+            return
+        }
+    }
+}
+
 func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     quit := false
 
     face := &text.GoTextFace{
         Source: engine.Font,
-        Size: 24,
+        Size: 28,
     }
     var tface text.Face = face
 
@@ -1402,7 +1471,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     )
 
     selectButton := makeButton("Select Song", tface, 200, func (args *widget.ButtonClickedEventArgs) {
-        selectedSong := chooseSong(yield, engine, background)
+        selectedSong := chooseSong(yield, engine, background, face)
         if selectedSong != "" {
             playSong(yield, engine, selectedSong)
         }
@@ -1410,6 +1479,10 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
 
     selectButton.Focus(true)
     rootContainer.AddChild(selectButton)
+
+    rootContainer.AddChild(makeButton("Settings", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+        doSettingsMenu(yield, engine, background, face)
+    }))
 
     rootContainer.AddChild(makeButton("Quit", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         quit = true
@@ -1758,26 +1831,10 @@ func (engine *Engine) Draw2(screen *ebiten.Image) {
 */
 
 func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
-    return outsideWidth, outsideHeight
+    return ScreenWidth, ScreenHeight
 }
 
 func main() {
-    /*
-    smf, err := smflib.ReadFile("notes.mid")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Number of tracks: %d", len(smf.Tracks))
-    */
-
-    /*
-    reader := smflib.ReadTracks("notes.mid", 2)
-    reader.Do(func (event smflib.TrackEvent) {
-        log.Printf("Tick: %d, Microseconds: %v, Event: %v", event.AbsTicks, event.AbsMicroSeconds, event.Message)
-    })
-    */
-
     log.SetFlags(log.Ldate | log.Lshortfile | log.Lmicroseconds)
 
     var path string
@@ -1791,6 +1848,7 @@ func main() {
     ebiten.SetTPS(120)
     ebiten.SetWindowSize(ScreenWidth, ScreenHeight)
     ebiten.SetWindowTitle("Rhythm Game")
+    ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
     audioContext := audio.NewContext(44100)
 
