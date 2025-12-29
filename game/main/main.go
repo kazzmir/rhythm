@@ -86,6 +86,7 @@ const (
 )
 
 type Input struct {
+    HasGamepad bool
     GamepadID ebiten.GamepadID
     GamepadButtons map[InputAction]ebiten.GamepadButton
     KeyboardButtons map[InputAction]ebiten.Key
@@ -183,7 +184,7 @@ func (song *Song) Update(input *Input) {
             fret.Press = time.Time{}
         }
 
-        if input.GamepadID != ebiten.GamepadID(0) {
+        if input.HasGamepad {
             button := input.GamepadButtons[fret.InputAction]
             if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
                 fret.Press = time.Now()
@@ -225,7 +226,7 @@ func (song *Song) Update(input *Input) {
 
         key := input.KeyboardButtons[fret.InputAction]
         pressed := inpututil.IsKeyJustPressed(key)
-        if input.GamepadID != ebiten.GamepadID(0) {
+        if input.HasGamepad {
             button := input.GamepadButtons[fret.InputAction]
             if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
                 pressed = true
@@ -796,7 +797,8 @@ func (engine *Engine) Update() error {
         log.Printf("Gamepad connected: %v '%s'", id, ebiten.GamepadName(id))
         engine.GamepadIds[id] = struct{}{}
 
-        if engine.Input.GamepadID == ebiten.GamepadID(0) {
+        if !engine.Input.HasGamepad {
+            engine.Input.HasGamepad = true
             engine.Input.GamepadID = id
             // works for PDP Rock Band 4 Jaguar
             engine.Input.GamepadButtons = map[InputAction]ebiten.GamepadButton{
