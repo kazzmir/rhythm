@@ -120,7 +120,7 @@ func (song *Song) Close() {
 func (song *Song) Update(gamepadIds map[ebiten.GamepadID]struct{}) {
     song.DoSong.Do(func(){
         song.Song.Play()
-        // engine.Guitar.Play()
+        song.Guitar.Play()
     })
 
     if song.StartTime.IsZero() {
@@ -255,6 +255,10 @@ func (song *Song) Update(gamepadIds map[ebiten.GamepadID]struct{}) {
 
     if changeGuitar {
         if playGuitar && !stopGuitar {
+
+            song.Guitar.SetVolume(1.0)
+
+            /*
             if !song.Guitar.IsPlaying() {
                 err := song.Guitar.SetPosition(delta)
                 if err != nil {
@@ -262,8 +266,10 @@ func (song *Song) Update(gamepadIds map[ebiten.GamepadID]struct{}) {
                 }
                 song.Guitar.Play()
             }
+            */
         } else {
-            song.Guitar.Pause()
+            song.Guitar.SetVolume(0.3)
+            // song.Guitar.Pause()
         }
     }
 }
