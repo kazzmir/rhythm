@@ -1383,15 +1383,17 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     var makeFullscreenButton func() *widget.Button
 
+    maxButtonWidth := 250
+
     makeFullscreenButton = func() *widget.Button {
         oldButton := fullscreenButton
         if ebiten.IsFullscreen() {
-            fullscreenButton = makeButton("Windowed Mode", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+            fullscreenButton = makeButton("Windowed Mode", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
                 ebiten.SetFullscreen(false)
                 makeFullscreenButton()
             })
         } else {
-            fullscreenButton = makeButton("Fullscreen", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+            fullscreenButton = makeButton("Fullscreen", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
                 ebiten.SetFullscreen(true)
                 makeFullscreenButton()
             })
@@ -1403,7 +1405,7 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     rootContainer.AddChild(makeFullscreenButton())
 
-    rootContainer.AddChild(makeButton("Back", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+    rootContainer.AddChild(makeButton("Back", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
         quit = true
     }))
 
