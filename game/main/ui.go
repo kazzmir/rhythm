@@ -4,6 +4,7 @@ import (
     "slices"
     "cmp"
     "os"
+    "time"
     "strings"
     "image/color"
     "math/rand/v2"
@@ -113,6 +114,7 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
             widget.WidgetOpts.MinSize(0, 200),
         )),
         widget.ListOpts.SelectFocus(),
+        widget.ListOpts.DisableDefaultKeys(true),
         widget.ListOpts.EntryLabelFunc(
             func (e any) string {
                 name := e.(string)
@@ -178,8 +180,43 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
     })
     defer engine.PopDrawer()
 
+    getRepeatDelay := func(count uint64) int {
+        switch {
+            case count >= 10: return 25
+            case count >= 5: return 60
+            case count >= 2: return 100
+        }
+
+        return 250
+    }
+
+    var keyDownTime time.Time
+    var keyDownCount uint64 = 0
+    var keyUpTime time.Time
+    var keyUpCount uint64 = 0
+
     for !chosen {
-        keys := inpututil.AppendJustPressedKeys(nil)
+
+        keys := inpututil.AppendPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyDown:
+                    if !keyDownTime.IsZero() && time.Since(keyDownTime) > time.Duration(getRepeatDelay(keyDownCount)) * time.Millisecond {
+                        songList.FocusNext()
+                        keyDownCount += 1
+                        keyDownTime = time.Now()
+                    }
+                case ebiten.KeyUp:
+                    if !keyUpTime.IsZero() && time.Since(keyUpTime) > time.Duration(getRepeatDelay(keyUpCount)) * time.Millisecond {
+                        songList.FocusPrevious()
+                        keyUpCount += 1
+                        keyUpTime = time.Now()
+                    }
+            }
+        }
+
+
+        keys = inpututil.AppendJustPressedKeys(nil)
         for _, key := range keys {
             switch key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
@@ -188,6 +225,12 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
                     if song != "" {
                         return song
                     }
+                case ebiten.KeyDown:
+                    songList.FocusNext()
+                    keyDownTime = time.Now()
+                case ebiten.KeyUp:
+                    songList.FocusPrevious()
+                    keyUpTime = time.Now()
                 case ebiten.KeyPageDown:
                     for range 10 {
                         songList.FocusNext()
@@ -196,6 +239,18 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
                     for range 10 {
                         songList.FocusPrevious()
                     }
+            }
+        }
+
+        keys = inpututil.AppendJustReleasedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyDown:
+                    keyDownTime = time.Time{}
+                    keyDownCount = 0
+                case ebiten.KeyUp:
+                    keyUpTime = time.Time{}
+                    keyUpCount = 0
             }
         }
 
