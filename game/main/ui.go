@@ -265,8 +265,6 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
     return song
 }
 
-
-
 type ColorHSV struct {
     H, S, V float64 // h 0-360, s 0-1, v 0-1
 
@@ -494,6 +492,13 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     }
 }
 
+func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string) SongSettings {
+    var settings SongSettings
+    settings.Difficulty = "medium"
+
+    return settings
+}
+
 func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     quit := false
 
@@ -527,7 +532,10 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     selectButton := makeButton("Select Song", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         selectedSong := chooseSong(yield, engine, background, face)
         if selectedSong != "" {
-            playSong(yield, engine, selectedSong)
+
+            setup := setupSong(yield, engine, selectedSong)
+
+            playSong(yield, engine, selectedSong, setup)
         }
     })
 
