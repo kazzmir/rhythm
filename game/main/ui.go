@@ -492,9 +492,62 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     }
 }
 
-func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string) SongSettings {
+func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face *text.GoTextFace, background *Background) SongSettings {
     var settings SongSettings
     settings.Difficulty = "medium"
+
+    var tface text.Face = face
+
+    quit := false
+
+    rootContainer := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewGridLayout(
+            widget.GridLayoutOpts.Columns(1),
+            widget.GridLayoutOpts.DefaultStretch(true, false),
+            widget.GridLayoutOpts.Spacing(0, 10),
+            widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
+        )),
+    )
+
+    rootContainer.AddChild(widget.NewLabel(
+        widget.LabelOpts.Text("Select Difficulty", &tface, &widget.LabelColor{
+            Idle: color.White,
+            Disabled: color.Gray{Y: 128},
+        }),
+    ))
+
+    rootContainer.AddChild(widget.NewLabel(
+        widget.LabelOpts.Text("Ready", &tface, &widget.LabelColor{
+            Idle: color.White,
+            Disabled: color.Gray{Y: 128},
+        }),
+    ))
+
+    ui := ebitenui.UI{
+        Container: rootContainer,
+    }
+
+    engine.PushDrawer(func(screen *ebiten.Image) {
+        background.Draw(screen)
+        ui.Draw(screen)
+    })
+    defer engine.PopDrawer()
+
+    for !quit {
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    quit = true
+            }
+        }
+
+        ui.Update()
+
+        if yield() != nil {
+            break
+        }
+    }
 
     return settings
 }
@@ -533,7 +586,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
         selectedSong := chooseSong(yield, engine, background, face)
         if selectedSong != "" {
 
-            setup := setupSong(yield, engine, selectedSong)
+            setup := setupSong(yield, engine, selectedSong, face, background)
 
             playSong(yield, engine, selectedSong, setup)
         }
