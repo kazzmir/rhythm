@@ -4,6 +4,7 @@ import (
     "slices"
     "cmp"
     "os"
+    "fmt"
     "time"
     "strings"
     "image/color"
@@ -500,31 +501,64 @@ func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face 
 
     quit := false
 
-    rootContainer := widget.NewContainer(
-        widget.ContainerOpts.Layout(widget.NewGridLayout(
-            widget.GridLayoutOpts.Columns(1),
-            widget.GridLayoutOpts.DefaultStretch(true, false),
-            widget.GridLayoutOpts.Spacing(0, 10),
-            widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
-        )),
-    )
+    var ui ebitenui.UI
 
-    rootContainer.AddChild(widget.NewLabel(
-        widget.LabelOpts.Text("Select Difficulty", &tface, &widget.LabelColor{
-            Idle: color.White,
-            Disabled: color.Gray{Y: 128},
-        }),
-    ))
+    var buildRootContainer func() *widget.Container
 
-    rootContainer.AddChild(widget.NewLabel(
-        widget.LabelOpts.Text("Ready", &tface, &widget.LabelColor{
-            Idle: color.White,
-            Disabled: color.Gray{Y: 128},
-        }),
-    ))
+    buildDifficultyContainer := func() *widget.Container {
+        container := widget.NewContainer(
+            widget.ContainerOpts.Layout(widget.NewGridLayout(
+                widget.GridLayoutOpts.Columns(1),
+                widget.GridLayoutOpts.DefaultStretch(true, false),
+                widget.GridLayoutOpts.Spacing(10, 0),
+                widget.GridLayoutOpts.Padding(&widget.Insets{Top: 10, Left: 50, Right: 50, Bottom: 50}),
+            )),
+        )
 
-    ui := ebitenui.UI{
-        Container: rootContainer,
+        for _, difficulty := range []string{"expert", "hard", "medium", "easy"} {
+            container.AddChild(makeButton(difficulty, tface, 200, func (args *widget.ButtonClickedEventArgs) {
+                settings.Difficulty = difficulty
+                ui.Container = buildRootContainer()
+            }))
+        }
+
+        return container
+    }
+
+    buildRootContainer = func() *widget.Container {
+        rootContainer := widget.NewContainer(
+            widget.ContainerOpts.Layout(widget.NewGridLayout(
+                widget.GridLayoutOpts.Columns(1),
+                widget.GridLayoutOpts.DefaultStretch(true, false),
+                widget.GridLayoutOpts.Spacing(0, 10),
+                widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
+            )),
+        )
+
+        rootContainer.AddChild(widget.NewLabel(
+            widget.LabelOpts.Text(fmt.Sprintf("Difficulty: %v", settings.Difficulty), &tface, &widget.LabelColor{
+                Idle: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+        ))
+
+        readyButton := makeButton("Ready", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+            quit = true
+        })
+
+        rootContainer.AddChild(readyButton)
+
+        // readyButton.Focus(true)
+
+        rootContainer.AddChild(makeButton("Difficulty", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+            ui.Container = buildDifficultyContainer()
+        }))
+
+        return rootContainer
+    }
+
+    ui = ebitenui.UI{
+        Container: buildRootContainer(),
     }
 
     engine.PushDrawer(func(screen *ebiten.Image) {
@@ -539,6 +573,10 @@ func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face 
             switch key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
                     quit = true
+                case ebiten.KeyDown:
+                    ui.ChangeFocus(widget.FOCUS_NEXT)
+                case ebiten.KeyUp:
+                    ui.ChangeFocus(widget.FOCUS_PREVIOUS)
             }
         }
 
@@ -586,7 +624,9 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
         selectedSong := chooseSong(yield, engine, background, face)
         if selectedSong != "" {
 
+            yield()
             setup := setupSong(yield, engine, selectedSong, face, background)
+            yield()
 
             playSong(yield, engine, selectedSong, setup)
         }
