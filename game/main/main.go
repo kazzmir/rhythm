@@ -31,6 +31,8 @@ import (
     "github.com/hajimehoshi/ebiten/v2/vector"
     // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
+
+    "github.com/solarlune/tetra3d"
 )
 
 const ScreenWidth = 1400
@@ -666,6 +668,8 @@ type Engine struct {
     Coroutine *coroutine.Coroutine
 
     GamepadIds map[ebiten.GamepadID]struct{}
+
+    GuitarButtonMesh *tetra3d.Mesh
 }
 
 func (engine *Engine) PushDrawer(drawer func(screen *ebiten.Image)) {
@@ -749,6 +753,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
 
             return mainMenu(engine, yield)
         }),
+        GuitarButtonMesh: tetra3d.NewCylinderMesh(2, 40, 50, false),
     }
 
     /*
@@ -860,10 +865,57 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
     defer song.Close()
 
+    scene := tetra3d.NewScene("Scene")
+    scene.World.LightingOn = false
+
+    // buttonMesh := tetra3d.NewCylinderMesh(2, 40, 50, false)
+    buttonMesh := tetra3d.NewCubeMesh()
+    // buttonMesh.SetVertexColor(1, tetra3d.NewColor(0, 1, 0, 1))
+
+    // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 0, 1, 2, 3).SetColor(1, tetra3d.NewColor(0, 1, 0, 1))
+    // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 4, 5, 6, 7).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
+    tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 8, 9, 10, 11).SetColor(1, tetra3d.NewColor(0, 0, 1, 1))
+
+    // buttonMesh.SetVertexColor(1, tetra3d.NewColor(1, 0, 0, 1))
+
+    buttonMesh.SetActiveColorChannel(1)
+
+    /*
+    for i := range 100 {
+        model := tetra3d.NewModel("Button", buttonMesh)
+        model.Color = tetra3d.NewColor(1, 0, 0, 1)
+        // model.SetWorldScale(2, 2, 2)
+        z := float32((i - 20) * 20)
+        model.SetWorldPositionVec(tetra3d.NewVector3(z, 0, 0))
+        scene.Root.AddChildren(model)
+    }
+    */
+
+    model := tetra3d.NewModel("Button", buttonMesh)
+    model.Color = tetra3d.NewColor(1, 1, 1, 1)
+    // model.SetWorldScale(2, 2, 2)
+    // model.SetWorldPositionVec(tetra3d.NewVector3(z, 0, 0))
+    scene.Root.AddChildren(model)
+
+    camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
+    // camera := tetra3d.NewCamera(300, 300)
+    camera.SetFieldOfView(80)
+    // camera.SetLocalPosition(0, 10, 500)
+    camera.Move(0, 0, 5)
+    // camera.Node.Move(tetra3d.NewVector3(0, 0, -10))
+    // camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(0, 0, 0, 2))
+
+    scene.Root.AddChildren(camera)
+
+    // rotation := float32(0)
+
     engine.PushDrawer(func(screen *ebiten.Image) {
-        drawSong(screen, song, engine.Font)
+        engine.DrawSong3d(screen, song, scene, camera)
+        // drawSong(screen, song, engine.Font)
     })
     defer engine.PopDrawer()
+
+    // model.SetLocalRotation(model.LocalRotation().Rotated(1, 0, 1, 1.05))
 
     song.Update(engine.Input)
     for !song.Finished() {
@@ -876,6 +928,13 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
                     return nil
             }
         }
+
+        /*
+        rotation += 0.01
+        camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(1, 0, 1, rotation))
+        */
+
+        model.SetLocalRotation(model.LocalRotation().Rotated(1, 0, 1, 0.02))
 
         song.Update(engine.Input)
         if yield() != nil {
@@ -1064,6 +1123,15 @@ func darkenColor(c color.NRGBA, amount float64) color.Color {
     }
 
     return c
+}
+
+func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3d.Scene, camera *tetra3d.Camera) {
+
+    camera.Clear()
+    camera.RenderScene(scene)
+    screen.DrawImage(camera.ColorTexture(), nil)
+
+    camera.DrawDebugText(screen, "just a test", 0, 10, 2, tetra3d.NewColor(1, 1, 1, 1))
 }
 
 // vertical layout
