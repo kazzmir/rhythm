@@ -414,7 +414,7 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
     return foundFile, nil
 }
 
-func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) {
+func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
     song := Song{
         Frets: make([]Fret, 5),
     }
@@ -425,8 +425,6 @@ func MakeSong(audioContext *audio.Context, songDirectory string) (*Song, error) 
     song.Frets[3].InputAction = InputActionBlue
     song.Frets[4].InputAction = InputActionOrange
     // song.Frets[5].Key = ebiten.Key6
-
-    difficulty := "easy"
 
     var basefs fs.FS
 
@@ -745,7 +743,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         Input: MakeDefaultInput(),
         Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
             if songDirectory != "" {
-                err := playSong(yield, engine, songDirectory)
+                err := playSong(yield, engine, songDirectory, DefaultSongSettings())
                 return err
             }
 
@@ -844,8 +842,18 @@ func (engine *Engine) Update() error {
     return nil
 }
 
-func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string) error {
-    song, err := MakeSong(engine.AudioContext, songPath)
+type SongSettings struct {
+    Difficulty string
+}
+
+func DefaultSongSettings() SongSettings {
+    return SongSettings{
+        Difficulty: "medium",
+    }
+}
+
+func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
+    song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
         return err
     }
