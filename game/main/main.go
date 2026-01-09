@@ -1143,7 +1143,12 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
     meshes := []*tetra3d.Mesh{redMesh, greenMesh, yellowMesh, blueMesh, orangeMesh}
 
-    var notes []*tetra3d.Model
+    type NoteModel struct {
+        Model *tetra3d.Model
+        Note *Note
+    }
+
+    var notes []NoteModel
     for fretI := range song.Frets {
         fret := &song.Frets[fretI]
         for i := range fret.Notes {
@@ -1156,7 +1161,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             model.Move(float32(xPos), 0, float32(-note.Start.Milliseconds() / 50))
             scene.Root.AddChildren(model)
 
-            notes = append(notes, model)
+            notes = append(notes, NoteModel{Model: model, Note: note})
         }
     }
 
@@ -1189,8 +1194,16 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         // model.Move(0, 0, 0.1)
 
+        delta := time.Since(song.StartTime)
+
         for _, noteModel := range notes {
-            noteModel.Move(0, 0, 0.2)
+            x := noteModel.Model.WorldPosition().X
+            y := noteModel.Model.WorldPosition().Y
+
+            elapsed := noteModel.Note.Start - delta
+
+            noteModel.Model.SetWorldPosition(x, y, float32(-(elapsed.Microseconds()) / 20000))
+            // noteModel.Move(0, 0, 0.2)
         }
 
         // model.SetLocalRotation(model.LocalRotation().Rotated(0.5, 0.2, 0.5, 0.02))
