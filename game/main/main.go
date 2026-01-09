@@ -3,6 +3,7 @@ package main
 import (
     "log"
     "time"
+    "math"
     "os"
     "io"
     "io/fs"
@@ -857,6 +858,202 @@ func DefaultSongSettings() SongSettings {
     }
 }
 
+func is_convex(a, b, c tetra3d.VertexInfo, normal tetra3d.Vector3) bool {
+    a_vec := tetra3d.NewVector3(a.X, a.Y, a.Z)
+    b_vec := tetra3d.NewVector3(b.X, b.Y, b.Z)
+    c_vec := tetra3d.NewVector3(c.X, c.Y, c.Z)
+
+    ab := a_vec.Sub(b_vec)
+    cb := c_vec.Sub(b_vec)
+
+    cross := ab.Cross(cb)
+    return cross.Dot(normal) > 0
+}
+
+func pointInTriangle(p, a, b, c tetra3d.VertexInfo, normal tetra3d.Vector3) bool {
+    p_vec := tetra3d.NewVector3(p.X, p.Y, p.Z)
+    a_vec := tetra3d.NewVector3(a.X, a.Y, a.Z)
+    b_vec := tetra3d.NewVector3(b.X, b.Y, b.Z)
+    c_vec := tetra3d.NewVector3(c.X, c.Y, c.Z)
+    /*
+    ab := b_vec.Sub(a_vec)
+    ac := c_vec.Sub(a_vec)
+    ap := p_vec.Sub(a_vec)
+    d1 := ab.Dot(ap)
+    d2 := ac.Dot(ap)
+    if d1 < 0 || d2 < 0 {
+        return false
+    }
+    d3 := ab.Dot(ab)
+    d4 := ac.Dot(ac)
+    if d1 > d3 || d2 > d4 {
+        return false
+    }
+    vc := d3*d2 - d1*d4
+    return vc >= 0
+    */
+
+    e0 := b_vec.Sub(a_vec).Cross(p_vec.Sub(a_vec)).Dot(normal)
+    e1 := c_vec.Sub(b_vec).Cross(p_vec.Sub(b_vec)).Dot(normal)
+    e2 := a_vec.Sub(c_vec).Cross(p_vec.Sub(c_vec)).Dot(normal)
+
+    if e0 >= 0 && e1 >= 0 && e2 >= 0 {
+        return true
+    }
+
+    return false
+}
+
+func no_vertex_inside(aIndex, bIndex, cIndex int, vertIndices []int, vertices []tetra3d.VertexInfo, normal tetra3d.Vector3) bool {
+    for _, vi := range vertIndices {
+        if vi == aIndex || vi == bIndex || vi == cIndex {
+            continue
+        }
+
+        if pointInTriangle(vertices[vi], vertices[aIndex], vertices[bIndex], vertices[cIndex], normal) {
+            return false
+        }
+    }
+
+    return true
+}
+
+// implement the ear clipping algorithm for simple convex polygons. vertices must be in counter-clockwise order
+func tesselate2(vertices []tetra3d.VertexInfo, vertIndices []int) []int {
+    var out []int
+
+    normal := tetra3d.NewVector3(0, 1, 0)
+
+    for len(vertIndices) > 3 {
+        fail := true
+        for i := range vertIndices {
+            prevIndex := (i - 1 + len(vertIndices)) % len(vertIndices)
+            nextIndex := (i + 1) % len(vertIndices)
+            a := vertIndices[prevIndex]
+            b := vertIndices[i]
+            c := vertIndices[nextIndex]
+
+            if is_convex(vertices[a], vertices[b], vertices[c], normal) && no_vertex_inside(a, b, c, vertIndices, vertices, normal) {
+                log.Printf("Clipping ear: %d, %d, %d", a, b, c)
+                out = append(out, a, b, c)
+
+                before := vertIndices[:i]
+                after := vertIndices[i+1:]
+                vertIndices = append(before, after...)
+                fail = false
+                break
+            }
+        }
+
+        if fail {
+            log.Printf("Tesselation failed; remaining vertices: %v", vertIndices)
+            break
+        }
+    }
+
+    return append(out, vertIndices...)
+}
+
+func tesselate(vertices []tetra3d.VertexInfo, vertIndices []int) []int {
+    var out []int
+
+    for len(vertIndices) > 3 {
+        // remove index 1
+        out = append(out, vertIndices[0], vertIndices[1], vertIndices[2])
+        before := vertIndices[:1]
+        after := vertIndices[2:]
+        vertIndices = append(before, after...)
+    }
+
+    return append(out, vertIndices...)
+}
+
+// NewCylinderMesh creates a new cylinder Mesh and gives it a new material (suitably named "Cylinder").
+// sideCount is how many sides the cylinder should have, while radius is the radius of the cylinder in world units.
+// if createCaps is true, then the cylinder will have triangle caps.
+func NewCylinderMesh(sideCount int, radius, height float32) *tetra3d.Mesh {
+
+	if sideCount < 3 {
+		sideCount = 3
+	}
+
+	mesh := tetra3d.NewMesh("Cylinder")
+
+	verts := []tetra3d.VertexInfo{}
+
+    var topVerts []int
+
+	for i := 0; i < sideCount; i++ {
+
+		pos := tetra3d.NewVector3(radius, height/2, 0)
+		pos = pos.Rotate(0, 1, 0, float32(i)/float32(sideCount)*math.Pi*2)
+        topVerts = append(topVerts, len(verts))
+		verts = append(verts, tetra3d.NewVertex(pos.X, pos.Y, pos.Z, 0, 0))
+
+	}
+
+    var bottomVerts []int
+	for i := 0; i < sideCount; i++ {
+
+		pos := tetra3d.NewVector3(radius, -height/2, 0)
+		pos = pos.Rotate(0, 1, 0, float32(i)/float32(sideCount)*math.Pi*2)
+        bottomVerts = append(bottomVerts, len(verts))
+		verts = append(verts, tetra3d.NewVertex(pos.X, pos.Y, pos.Z, 0, 0))
+	}
+
+    /*
+	if createCaps {
+		verts = append(verts, NewVertex(0, height/2, 0, 0, 0))
+		verts = append(verts, NewVertex(0, -height/2, 0, 0, 0))
+	}
+    */
+
+	mesh.AddVertices(verts...)
+
+	indices := []int{}
+	for i := 0; i < sideCount; i++ {
+		if i < sideCount-1 {
+			indices = append(indices, i, i+sideCount, i+1)
+			indices = append(indices, i+1, i+sideCount, i+sideCount+1)
+		} else {
+			indices = append(indices, i, i+sideCount, 0)
+			indices = append(indices, 0, i+sideCount, sideCount)
+		}
+	}
+
+    // indices = append(indices, tesselate(verts, topVerts)...)
+
+    /*
+    indices = append(indices, topVerts...)
+    indices = append(indices, bottomVerts...)
+    */
+
+    /*
+	if createCaps {
+		for i := 0; i < sideCount; i++ {
+			topCenter := len(verts) - 2
+			bottomCenter := len(verts) - 1
+			if i < sideCount-1 {
+				indices = append(indices, i, i+1, topCenter)
+				indices = append(indices, i+sideCount+1, i+sideCount, bottomCenter)
+			} else {
+				indices = append(indices, i, 0, topCenter)
+				indices = append(indices, sideCount, i+sideCount, bottomCenter)
+			}
+		}
+	}
+    */
+
+	mesh.AddMeshPart(tetra3d.NewMaterial("Cylinder"), indices...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("CylinderTop"), tesselate(verts, topVerts)...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("CylinderBottom"), tesselate(verts, bottomVerts)...)
+
+	mesh.UpdateBounds()
+	mesh.AutoNormal()
+
+	return mesh
+}
+
 func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
     song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
@@ -868,17 +1065,50 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     scene := tetra3d.NewScene("Scene")
     scene.World.LightingOn = false
 
-    // buttonMesh := tetra3d.NewCylinderMesh(2, 40, 50, false)
-    buttonMesh := tetra3d.NewCubeMesh()
+    makeMesh := func(color tetra3d.Color) *tetra3d.Mesh {
+        mesh := NewCylinderMesh(15, 4, 3)
+        tetra3d.NewVertexSelection().SelectMeshPartByName(mesh, "CylinderTop").SetColor(1, color)
+        mesh.SetActiveColorChannel(1)
+        return mesh
+    }
+
+    redMesh := makeMesh(tetra3d.NewColor(1, 0, 0, 1))
+    greenMesh := makeMesh(tetra3d.NewColor(0, 1, 0, 1))
+    yellowMesh := makeMesh(tetra3d.NewColor(1, 1, 0, 1))
+    blueMesh := makeMesh(tetra3d.NewColor(0, 0, 1, 1))
+    orangeMesh := makeMesh(tetra3d.NewColor(1, 0.5, 0, 1))
+
+    /*
+    redMesh := NewCylinderMesh(15, 4, 5)
+    // buttonMesh := tetra3d.NewCubeMesh()
     // buttonMesh.SetVertexColor(1, tetra3d.NewColor(0, 1, 0, 1))
 
-    // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 0, 1, 2, 3).SetColor(1, tetra3d.NewColor(0, 1, 0, 1))
+    // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 10, 20).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
+    tetra3d.NewVertexSelection().SelectMeshPartByName(redMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
+
     // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 4, 5, 6, 7).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
-    tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 8, 9, 10, 11).SetColor(1, tetra3d.NewColor(0, 0, 1, 1))
+    // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 8, 9, 10, 11).SetColor(1, tetra3d.NewColor(0, 0, 1, 1))
 
     // buttonMesh.SetVertexColor(1, tetra3d.NewColor(1, 0, 0, 1))
 
-    buttonMesh.SetActiveColorChannel(1)
+    redMesh.SetActiveColorChannel(1)
+
+    greenMesh := NewCylinderMesh(15, 4, 5)
+    tetra3d.NewVertexSelection().SelectMeshPartByName(greenMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(0, 1, 0, 1))
+    greenMesh.SetActiveColorChannel(1)
+
+    yellowMesh := NewCylinderMesh(15, 4, 5)
+    tetra3d.NewVertexSelection().SelectMeshPartByName(yellowMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(1, 1, 0, 1))
+    yellowMesh.SetActiveColorChannel(1)
+    
+    blueMesh := NewCylinderMesh(15, 4, 5)
+    tetra3d.NewVertexSelection().SelectMeshPartByName(blueMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(0, 0, 1, 1))
+    blueMesh.SetActiveColorChannel(1)
+
+    orangeMesh := NewCylinderMesh(15, 4, 5)
+    tetra3d.NewVertexSelection().SelectMeshPartByName(orangeMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(1, 0.5, 0, 1))
+    orangeMesh.SetActiveColorChannel(1)
+    */
 
     /*
     for i := range 100 {
@@ -891,21 +1121,44 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     }
     */
 
-    model := tetra3d.NewModel("Button", buttonMesh)
+    /*
+    model := tetra3d.NewModel("Button", redMesh)
     model.Color = tetra3d.NewColor(1, 1, 1, 1)
+    model.Move(-10, 0, -80)
     // model.SetWorldScale(2, 2, 2)
     // model.SetWorldPositionVec(tetra3d.NewVector3(z, 0, 0))
     scene.Root.AddChildren(model)
+    */
 
     camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
+    camera.SetFar(250)
     // camera := tetra3d.NewCamera(300, 300)
     camera.SetFieldOfView(80)
     // camera.SetLocalPosition(0, 10, 500)
-    camera.Move(0, 0, 5)
+    camera.Move(0, 20, 50)
     // camera.Node.Move(tetra3d.NewVector3(0, 0, -10))
     // camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(0, 0, 0, 2))
 
     scene.Root.AddChildren(camera)
+
+    meshes := []*tetra3d.Mesh{redMesh, greenMesh, yellowMesh, blueMesh, orangeMesh}
+
+    var notes []*tetra3d.Model
+    for fretI := range song.Frets {
+        fret := &song.Frets[fretI]
+        for i := range fret.Notes {
+            note := &fret.Notes[i]
+            model := tetra3d.NewModel("NoteRed", meshes[fretI])
+            model.Color = tetra3d.NewColor(1, 1, 1, 1)
+
+            xPos := (fretI - 2) * 10
+
+            model.Move(float32(xPos), 0, float32(-note.Start.Milliseconds() / 50))
+            scene.Root.AddChildren(model)
+
+            notes = append(notes, model)
+        }
+    }
 
     // rotation := float32(0)
 
@@ -934,7 +1187,13 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
         camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(1, 0, 1, rotation))
         */
 
-        model.SetLocalRotation(model.LocalRotation().Rotated(1, 0, 1, 0.02))
+        // model.Move(0, 0, 0.1)
+
+        for _, noteModel := range notes {
+            noteModel.Move(0, 0, 0.2)
+        }
+
+        // model.SetLocalRotation(model.LocalRotation().Rotated(0.5, 0.2, 0.5, 0.02))
 
         song.Update(engine.Input)
         if yield() != nil {
