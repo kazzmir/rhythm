@@ -1054,6 +1054,76 @@ func NewCylinderMesh(sideCount int, radius, height float32) *tetra3d.Mesh {
 	return mesh
 }
 
+func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d.Mesh {
+	mesh := tetra3d.NewMesh("3dRectangle")
+
+    x0 := -width / 2
+    x1 := width / 2
+    y0 := -height / 2
+    y1 := height / 2
+    z0 := float32(0)
+    z1 := -depth
+
+    var verts []tetra3d.VertexInfo
+
+    for _, x := range []float32{x0, x1} {
+        for _, y := range []float32{y0, y1} {
+            for _, z := range []float32{z0, z1} {
+                vertex := tetra3d.NewVertex(x, y, z, 0, 0)
+                verts = append(verts, vertex)
+            }
+        }
+    }
+
+    mesh.AddVertices(verts...)
+
+    /*
+    verts := []tetra3d.VertexInfo{
+        tetra3d.NewVertex(x0, y0, z0, 0, 0), // 0
+        tetra3d.NewVertex(x1, y0, z0, 0, 0), // 0
+        tetra3d.NewVertex(x1, y1, z0, 0, 0), // 0
+        tetra3d.NewVertex(x0, y1, z0, 0, 0), // 0
+
+        tetra3d.NewVertex(x0, y1, z0, 0, 0), // 0
+    }
+    */
+
+    frontPlane := []int{0, 4, 6, 2}
+    rightPlane := []int{4, 6, 7, 5}
+    leftPlane := []int{0, 1, 3, 2}
+    backPlane := []int{1, 5, 7, 3}
+    topPlane := []int{2, 6, 7, 3}
+    bottomPlane := []int{0, 4, 5, 1}
+
+    _ = frontPlane
+    _ = rightPlane
+    _ = leftPlane
+    _ = backPlane
+    _ = topPlane
+    _ = bottomPlane
+
+	mesh.AddMeshPart(tetra3d.NewMaterial("Front"), append(tesselate(verts, frontPlane), )...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Right"), append(tesselate(verts, rightPlane), )...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Left"), append(tesselate(verts, leftPlane), )...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Back"), append(tesselate(verts, backPlane), )...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Top"), append(tesselate(verts, topPlane), )...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Bottom"), append(tesselate(verts, bottomPlane), )...)
+
+    for _, part := range mesh.MeshParts {
+        name := part.Material.Name()
+        tetra3d.NewVertexSelection().SelectMeshPartByName(mesh, name).SetColor(1, color)
+    }
+
+    tetra3d.NewVertexSelection().SelectIndices(mesh, frontPlane[0], frontPlane[1]).SetColor(1, tetra3d.NewColor(0.1, 0.1, 0.1, 1))
+
+    mesh.SetActiveColorChannel(1)
+
+	mesh.UpdateBounds()
+	mesh.AutoNormal()
+
+    return mesh
+}
+
 func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
     song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
@@ -1078,57 +1148,12 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     blueMesh := makeMesh(tetra3d.NewColor(0, 0, 1, 1))
     orangeMesh := makeMesh(tetra3d.NewColor(1, 0.5, 0, 1))
 
-    /*
-    redMesh := NewCylinderMesh(15, 4, 5)
-    // buttonMesh := tetra3d.NewCubeMesh()
-    // buttonMesh.SetVertexColor(1, tetra3d.NewColor(0, 1, 0, 1))
+    neckMesh := make3dRectangle(60, 5, 250, tetra3d.NewColor(0.5, 0.5, 0.5, 1))
+    neckModel := tetra3d.NewModel("Neck", neckMesh)
+    neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+    neckModel.Move(0, -5, 30)
 
-    // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 10, 20).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
-    tetra3d.NewVertexSelection().SelectMeshPartByName(redMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
-
-    // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 4, 5, 6, 7).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
-    // tetra3d.NewVertexSelection().SelectIndices(buttonMesh, 8, 9, 10, 11).SetColor(1, tetra3d.NewColor(0, 0, 1, 1))
-
-    // buttonMesh.SetVertexColor(1, tetra3d.NewColor(1, 0, 0, 1))
-
-    redMesh.SetActiveColorChannel(1)
-
-    greenMesh := NewCylinderMesh(15, 4, 5)
-    tetra3d.NewVertexSelection().SelectMeshPartByName(greenMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(0, 1, 0, 1))
-    greenMesh.SetActiveColorChannel(1)
-
-    yellowMesh := NewCylinderMesh(15, 4, 5)
-    tetra3d.NewVertexSelection().SelectMeshPartByName(yellowMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(1, 1, 0, 1))
-    yellowMesh.SetActiveColorChannel(1)
-    
-    blueMesh := NewCylinderMesh(15, 4, 5)
-    tetra3d.NewVertexSelection().SelectMeshPartByName(blueMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(0, 0, 1, 1))
-    blueMesh.SetActiveColorChannel(1)
-
-    orangeMesh := NewCylinderMesh(15, 4, 5)
-    tetra3d.NewVertexSelection().SelectMeshPartByName(orangeMesh, "CylinderTop").SetColor(1, tetra3d.NewColor(1, 0.5, 0, 1))
-    orangeMesh.SetActiveColorChannel(1)
-    */
-
-    /*
-    for i := range 100 {
-        model := tetra3d.NewModel("Button", buttonMesh)
-        model.Color = tetra3d.NewColor(1, 0, 0, 1)
-        // model.SetWorldScale(2, 2, 2)
-        z := float32((i - 20) * 20)
-        model.SetWorldPositionVec(tetra3d.NewVector3(z, 0, 0))
-        scene.Root.AddChildren(model)
-    }
-    */
-
-    /*
-    model := tetra3d.NewModel("Button", redMesh)
-    model.Color = tetra3d.NewColor(1, 1, 1, 1)
-    model.Move(-10, 0, -80)
-    // model.SetWorldScale(2, 2, 2)
-    // model.SetWorldPositionVec(tetra3d.NewVector3(z, 0, 0))
-    scene.Root.AddChildren(model)
-    */
+    scene.Root.AddChildren(neckModel)
 
     camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
     camera.SetFar(250)
