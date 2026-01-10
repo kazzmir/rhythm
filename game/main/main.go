@@ -1180,7 +1180,6 @@ func NewFlameManager() *FlameManager {
 }
 
 func (manager *FlameManager) MakeFlame(fret int) {
-    log.Printf("Making flame for fret %d with %d images", fret, len(manager.Images))
     manager.Flames = append(manager.Flames, &Flame{
         Images: manager.Images,
         Life: 0,
