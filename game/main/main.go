@@ -21,6 +21,7 @@ import (
 
     "github.com/kazzmir/rhythm/lib/coroutine"
     "github.com/kazzmir/rhythm/lib/colorconv"
+    "github.com/kazzmir/rhythm/data"
 
     smflib "gitlab.com/gomidi/midi/v2/smf"
 
@@ -111,6 +112,10 @@ type SongInfo struct {
     SongLength time.Duration
 }
 
+type FlameMaker interface {
+    MakeFlame(fret int)
+}
+
 type Song struct {
     Frets []Fret
     StartTime time.Time
@@ -147,7 +152,7 @@ func (song *Song) Close() {
     }
 }
 
-func (song *Song) Update(input *Input) {
+func (song *Song) Update(input *Input, flameMaker FlameMaker) {
     song.DoSong.Do(func(){
         song.Song.Play()
         song.Guitar.Play()
@@ -208,14 +213,14 @@ func (song *Song) Update(input *Input) {
     }
 
     delta := time.Since(song.StartTime)
-    for i := range song.Frets {
+    for fretIndex := range song.Frets {
         /*
         if i == 1 {
             break
         }
         */
 
-        fret := &song.Frets[i]
+        fret := &song.Frets[fretIndex]
 
         if fret.StartNote < len(fret.Notes) {
             for fret.StartNote < len(fret.Notes) && fret.Notes[fret.StartNote].End < delta + NoteThresholdLow {
@@ -267,6 +272,7 @@ func (song *Song) Update(input *Input) {
 
                     if pressed {
                         notesHit = append(notesHit, note)
+                        flameMaker.MakeFlame(fretIndex)
                     }
 
                     /*
@@ -1133,6 +1139,83 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
     return mesh
 }
 
+type FlameManager struct {
+    Images []*ebiten.Image
+    Flames []*Flame
+}
+
+func NewFlameManager() *FlameManager {
+    files, err := data.FlameFS.ReadDir("flame")
+    if err != nil {
+        log.Printf("Unable to read flame FS: %v", err)
+        return nil
+    }
+
+    var images []*ebiten.Image
+
+    for _, path := range files {
+        log.Printf("Loading flame image: %v", path.Name())
+        if path.IsDir() {
+            continue
+        }
+        img, err := func() (*ebiten.Image, error) {
+            file, err := data.FlameFS.Open(filepath.Join("flame", path.Name()))
+            if err != nil {
+                return nil, err
+            }
+            defer file.Close()
+            return loadPng(bufio.NewReader(file))
+        }()
+
+        if err != nil {
+            log.Printf("Unable to load flame image '%v': %v", path.Name(), err)
+        }
+
+        images = append(images, img)
+    }
+
+    return &FlameManager{
+        Images: images,
+    }
+}
+
+func (manager *FlameManager) MakeFlame(fret int) {
+    log.Printf("Making flame for fret %d with %d images", fret, len(manager.Images))
+    manager.Flames = append(manager.Flames, &Flame{
+        Images: manager.Images,
+        Life: 0,
+        Fret: fret,
+    })
+}
+
+func (manager *FlameManager) Update() {
+    var flames []*Flame
+
+    for _, flame := range manager.Flames {
+        flame.Life += 1
+        if flame.Image() != nil {
+            flames = append(flames, flame)
+        }
+    }
+
+    manager.Flames = flames
+}
+
+type Flame struct {
+    Images []*ebiten.Image
+    Life int
+    Fret int
+}
+
+func (flame *Flame) Image() *ebiten.Image {
+    index := flame.Life / 2
+    if index >= len(flame.Images) {
+        return nil
+    }
+
+    return flame.Images[index]
+}
+
 func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
     song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
@@ -1162,7 +1245,6 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
     neckModel.Move(0, -5, 40)
 
-    /*
     neckFile, err := os.Open("guitar2.jpg")
     if err != nil {
         log.Printf("Unable to open neck texture file: %v", err)
@@ -1174,11 +1256,13 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             neckMesh.MeshPartByMaterialName("Top").Material.Texture = neckTextureImg
         }
     }
-    */
+    /*
     grey := ebiten.NewImage(1, 1)
     grey.Fill(color.NRGBA{R: 50, G: 50, B: 50, A: 255})
     neckMesh.MeshPartByMaterialName("Top").Material.Texture = grey
+    */
 
+    flameManager := NewFlameManager()
 
     stripMesh := make3dRectangle(70, 1, 1, tetra3d.NewColor(1, 1, 1, 1))
     stripModel := tetra3d.NewModel("Strip", stripMesh)
@@ -1288,15 +1372,23 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     // rotation := float32(0)
 
     engine.PushDrawer(func(screen *ebiten.Image) {
-        engine.DrawSong3d(screen, song, scene, camera)
+        engine.DrawSong3d(screen, song, scene, camera, flameManager)
         // drawSong(screen, song, engine.Font)
     })
     defer engine.PopDrawer()
 
     // model.SetLocalRotation(model.LocalRotation().Rotated(1, 0, 1, 1.05))
 
-    song.Update(engine.Input)
+    var counter uint64
+
+    song.Update(engine.Input, flameManager)
     for !song.Finished() {
+        counter += 1
+        /*
+        if (counter/5) % 30 < 5 {
+            flameManager.MakeFlame(int((counter/5) % 30))
+        }
+        */
 
         keys := inpututil.AppendJustPressedKeys(nil)
         for _, key := range keys {
@@ -1349,7 +1441,8 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         // model.SetLocalRotation(model.LocalRotation().Rotated(0.5, 0.2, 0.5, 0.02))
 
-        song.Update(engine.Input)
+        song.Update(engine.Input, flameManager)
+        flameManager.Update()
 
         for i := range song.Frets {
             fret := &song.Frets[i]
@@ -1556,11 +1649,20 @@ func darkenColor(c color.NRGBA, amount float64) color.Color {
     return c
 }
 
-func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3d.Scene, camera *tetra3d.Camera) {
+func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3d.Scene, camera *tetra3d.Camera, flameManager *FlameManager) {
 
     camera.Clear()
     camera.RenderScene(scene)
     screen.DrawImage(camera.ColorTexture(), nil)
+
+    for _, flame := range flameManager.Flames {
+        useImage := flame.Image()
+        x := 695 + (flame.Fret - 2) * 120 - useImage.Bounds().Dx()/2
+        y := ScreenHeight - 285 - useImage.Bounds().Dy()
+        var options ebiten.DrawImageOptions
+        options.GeoM.Translate(float64(x), float64(y))
+        screen.DrawImage(useImage, &options)
+    }
 
     // camera.DrawDebugText(screen, "just a test", 0, 10, 2, tetra3d.NewColor(1, 1, 1, 1))
 
