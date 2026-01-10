@@ -1148,7 +1148,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     blueMesh := makeMesh(tetra3d.NewColor(0, 0, 1, 1))
     orangeMesh := makeMesh(tetra3d.NewColor(1, 0.5, 0, 1))
 
-    neckMesh := make3dRectangle(60, 5, 250, tetra3d.NewColor(0.5, 0.5, 0.5, 1))
+    neckMesh := make3dRectangle(70, 5, 300, tetra3d.NewColor(0.5, 0.5, 0.5, 1))
     neckModel := tetra3d.NewModel("Neck", neckMesh)
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
     neckModel.Move(0, -5, 30)
@@ -1158,7 +1158,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
     camera.SetFar(250)
     // camera := tetra3d.NewCamera(300, 300)
-    camera.SetFieldOfView(80)
+    camera.SetFieldOfView(90)
     // camera.SetLocalPosition(0, 10, 500)
     camera.Move(0, 20, 50)
     // camera.Node.Move(tetra3d.NewVector3(0, 0, -10))
