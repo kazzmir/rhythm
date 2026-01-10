@@ -1075,6 +1075,22 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
         }
     }
 
+    frontPlane := []int{0, 4, 6, 2}
+    rightPlane := []int{4, 6, 7, 5}
+    leftPlane := []int{0, 1, 3, 2}
+    backPlane := []int{1, 5, 7, 3}
+    topPlane := []int{2, 6, 7, 3}
+    bottomPlane := []int{0, 4, 5, 1}
+
+    verts[frontPlane[0]].U = 0
+    verts[frontPlane[0]].V = 0
+    verts[frontPlane[1]].U = 1
+    verts[frontPlane[1]].V = 0
+    verts[frontPlane[2]].U = 1
+    verts[frontPlane[2]].V = 1
+    verts[frontPlane[3]].U = 0
+    verts[frontPlane[3]].V = 1
+
     mesh.AddVertices(verts...)
 
     /*
@@ -1087,13 +1103,6 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
         tetra3d.NewVertex(x0, y1, z0, 0, 0), // 0
     }
     */
-
-    frontPlane := []int{0, 4, 6, 2}
-    rightPlane := []int{4, 6, 7, 5}
-    leftPlane := []int{0, 1, 3, 2}
-    backPlane := []int{1, 5, 7, 3}
-    topPlane := []int{2, 6, 7, 3}
-    bottomPlane := []int{0, 4, 5, 1}
 
     _ = frontPlane
     _ = rightPlane
@@ -1148,10 +1157,28 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     blueMesh := makeMesh(tetra3d.NewColor(0, 0, 1, 1))
     orangeMesh := makeMesh(tetra3d.NewColor(1, 0.5, 0, 1))
 
-    neckMesh := make3dRectangle(70, 5, 350, tetra3d.NewColor(0.3, 0.3, 0.3, 1))
+    neckMesh := make3dRectangle(70, 5, 350, tetra3d.NewColor(1, 1, 1, 1))
     neckModel := tetra3d.NewModel("Neck", neckMesh)
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
     neckModel.Move(0, -5, 40)
+
+    /*
+    neckFile, err := os.Open("guitar2.jpg")
+    if err != nil {
+        log.Printf("Unable to open neck texture file: %v", err)
+    } else {
+        neckTextureImg, err := loadJpeg(bufio.NewReader(neckFile))
+        if err != nil {
+            log.Printf("Unable to load neck texture image: %v", err)
+        } else {
+            neckMesh.MeshPartByMaterialName("Top").Material.Texture = neckTextureImg
+        }
+    }
+    */
+    grey := ebiten.NewImage(1, 1)
+    grey.Fill(color.NRGBA{R: 50, G: 50, B: 50, A: 255})
+    neckMesh.MeshPartByMaterialName("Top").Material.Texture = grey
+
 
     stripMesh := make3dRectangle(70, 1, 1, tetra3d.NewColor(1, 1, 1, 1))
     stripModel := tetra3d.NewModel("Strip", stripMesh)
