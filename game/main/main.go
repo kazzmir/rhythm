@@ -670,7 +670,7 @@ type Engine struct {
 
     GamepadIds map[ebiten.GamepadID]struct{}
 
-    GuitarButtonMesh *tetra3d.Mesh
+    // GuitarButtonMesh *tetra3d.Mesh
 }
 
 func (engine *Engine) PushDrawer(drawer func(screen *ebiten.Image)) {
@@ -754,7 +754,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
 
             return mainMenu(engine, yield)
         }),
-        GuitarButtonMesh: tetra3d.NewCylinderMesh(2, 40, 50, false),
+        // GuitarButtonMesh: tetra3d.NewCylinderMesh(2, 40, 50, false),
     }
 
     /*
@@ -1046,7 +1046,7 @@ func NewCylinderMesh(sideCount int, radius, height float32) *tetra3d.Mesh {
 
 	mesh.AddMeshPart(tetra3d.NewMaterial("Cylinder"), indices...)
     mesh.AddMeshPart(tetra3d.NewMaterial("CylinderTop"), tesselate(verts, topVerts)...)
-    mesh.AddMeshPart(tetra3d.NewMaterial("CylinderBottom"), tesselate(verts, bottomVerts)...)
+    // mesh.AddMeshPart(tetra3d.NewMaterial("CylinderBottom"), tesselate(verts, bottomVerts)...)
 
 	mesh.UpdateBounds()
 	mesh.AutoNormal()
@@ -1114,7 +1114,7 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
         tetra3d.NewVertexSelection().SelectMeshPartByName(mesh, name).SetColor(1, color)
     }
 
-    tetra3d.NewVertexSelection().SelectIndices(mesh, frontPlane[0], frontPlane[1]).SetColor(1, tetra3d.NewColor(0.1, 0.1, 0.1, 1))
+    // tetra3d.NewVertexSelection().SelectIndices(mesh, frontPlane[0], frontPlane[1]).SetColor(1, tetra3d.NewColor(0.1, 0.1, 0.1, 1))
 
     mesh.SetActiveColorChannel(1)
 
@@ -1148,23 +1148,91 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     blueMesh := makeMesh(tetra3d.NewColor(0, 0, 1, 1))
     orangeMesh := makeMesh(tetra3d.NewColor(1, 0.5, 0, 1))
 
-    neckMesh := make3dRectangle(70, 5, 300, tetra3d.NewColor(0.5, 0.5, 0.5, 1))
+    neckMesh := make3dRectangle(70, 5, 350, tetra3d.NewColor(0.3, 0.3, 0.3, 1))
     neckModel := tetra3d.NewModel("Neck", neckMesh)
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
-    neckModel.Move(0, -5, 30)
+    neckModel.Move(0, -5, 40)
 
+    stripMesh := make3dRectangle(70, 1, 1, tetra3d.NewColor(1, 1, 1, 1))
+    stripModel := tetra3d.NewModel("Strip", stripMesh)
+    stripModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+    stripModel.Move(0, 5/2 + 0.1, -20)
+    neckModel.AddChildren(stripModel)
     scene.Root.AddChildren(neckModel)
+    // scene.Root.AddChildren(stripModel)
+
+    /*
+    playMesh := make3dRectangle(8, 1, 1, tetra3d.NewColor(1, 0, 0, 1))
+    playModelLow := tetra3d.NewModel("PlayButton", playMesh)
+    playModelLow.Color = tetra3d.NewColor(1, 1, 1, 1)
+    playModelLow.Move(0, 0, -float32(NoteThresholdLow.Microseconds())/20000)
+    scene.Root.AddChildren(playModelLow)
+
+    log.Printf("Low: %v", playModelLow.WorldPosition().Z)
+
+    play2Mesh := make3dRectangle(8, 1, 1, tetra3d.NewColor(1, 1, 0, 1))
+    playModelHigh := tetra3d.NewModel("PlayButton", play2Mesh)
+    playModelHigh.Color = tetra3d.NewColor(1, 1, 1, 1)
+    playModelHigh.Move(0, 0, -float32(NoteThresholdHigh.Microseconds())/20000)
+    tetra3d.NewVertexSelection().SelectMeshPartByName(play2Mesh, "Top").SetColor(1, tetra3d.NewColor(1, 1, 1, 1))
+    scene.Root.AddChildren(playModelHigh)
+
+    log.Printf("High: %v", playModelHigh.WorldPosition().Z)
+
+    zeroMesh := make3dRectangle(3, 1, 1, tetra3d.NewColor(1, 1, 1, 1))
+    zeroModel := tetra3d.NewModel("ZeroMarker", zeroMesh)
+    zeroModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+    zeroModel.Move(0, 0, 0)
+    scene.Root.AddChildren(zeroModel)
+    */
+
+    /*
+    cubeX := tetra3d.NewCubeMesh()
+    cubeModel := tetra3d.NewModel("Cube", cubeX)
+    cubeModel.Color = tetra3d.NewColor(0, 1, 0, 1)
+    cubeModel.Move(0, 0, 0)
+    scene.Root.AddChildren(cubeModel)
+    */
+
+    makeButton := func(fret int, mesh *tetra3d.Mesh) *tetra3d.Model {
+        button := tetra3d.NewModel("Button", mesh)
+        button.Color = tetra3d.NewColor(1, 1, 1, 0.3)
+        xPos := (fret - 2) * 10
+        button.Move(float32(xPos), 0, 0)
+        return button
+    }
+
+    redButton := makeButton(0, redMesh)
+    greenButton := makeButton(1, greenMesh)
+    yellowButton := makeButton(2, yellowMesh)
+    blueButton := makeButton(3, blueMesh)
+    orangeButton := makeButton(4, orangeMesh)
+
+    /*
+    redPressMesh := makeMesh(tetra3d.NewColor(1, 0, 0, 1))
+    redPress := tetra3d.NewModel("Debug", redPressMesh)
+    redPress.Color = tetra3d.NewColor(1, 1, 1, 0.5)
+    redPress.Move(-20, -1, 0)
+    */
+
+    for _, button := range []*tetra3d.Model{redButton, greenButton, yellowButton, blueButton, orangeButton} {
+        scene.Root.AddChildren(button)
+    }
 
     camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
-    camera.SetFar(250)
+    camera.SetFar(280)
     // camera := tetra3d.NewCamera(300, 300)
     camera.SetFieldOfView(90)
     // camera.SetLocalPosition(0, 10, 500)
-    camera.Move(0, 20, 50)
+    camera.Move(0, 30, 40)
+    camera.Rotate(3.5, 0, 0, -0.3)
     // camera.Node.Move(tetra3d.NewVector3(0, 0, -10))
     // camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(0, 0, 0, 2))
 
     scene.Root.AddChildren(camera)
+
+    // pressedColor := tetra3d.NewColor(1, 1, 1, 1)
+    // unpressedColor := tetra3d.NewColor(1, 1, 1, 0.5)
 
     meshes := []*tetra3d.Mesh{redMesh, greenMesh, yellowMesh, blueMesh, orangeMesh}
 
@@ -1221,19 +1289,58 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         delta := time.Since(song.StartTime)
 
-        for _, noteModel := range notes {
-            x := noteModel.Model.WorldPosition().X
-            y := noteModel.Model.WorldPosition().Y
+        for i, noteModel := range notes {
+            position := noteModel.Model.WorldPosition()
+            x := position.X
+            y := position.Y
 
             elapsed := noteModel.Note.Start - delta
 
-            noteModel.Model.SetWorldPosition(x, y, float32(-(elapsed.Microseconds()) / 20000))
+            noteModel.Model.SetWorldPosition(x, y, float32(float64(-(elapsed.Microseconds())) / 20000))
+
+            if i == 0 {
+                /*
+                log.Printf("Note %d position Z: %v (start: %v, elapsed: %v)", i, noteModel.Model.WorldPosition().Z, noteModel.Note.Start, elapsed)
+
+                x := noteModel.Model.WorldPosition().X
+                y := noteModel.Model.WorldPosition().Y
+                z := noteModel.Model.WorldPosition().Z
+                if z < 1 && z > -1 {
+                    log.Printf("X=%v Y=%v Z=%v", x, y, z)
+                    for {
+                        if yield() != nil {
+                            break
+                        }
+                    }
+                }
+                */
+
+            }
+
             // noteModel.Move(0, 0, 0.2)
         }
 
         // model.SetLocalRotation(model.LocalRotation().Rotated(0.5, 0.2, 0.5, 0.02))
 
         song.Update(engine.Input)
+
+        for i := range song.Frets {
+            fret := &song.Frets[i]
+            var button *tetra3d.Model
+            switch i {
+                case 0: button = redButton
+                case 1: button = greenButton
+                case 2: button = yellowButton
+                case 3: button = blueButton
+                case 4: button = orangeButton
+            }
+            if !fret.Press.IsZero() {
+                button.Color.A = min(1, button.Color.A + 0.06)
+            } else {
+                button.Color.A = max(0.3, button.Color.A - 0.01)
+            }
+        }
+
         if yield() != nil {
             break
         }
@@ -1428,7 +1535,31 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     camera.RenderScene(scene)
     screen.DrawImage(camera.ColorTexture(), nil)
 
-    camera.DrawDebugText(screen, "just a test", 0, 10, 2, tetra3d.NewColor(1, 1, 1, 1))
+    // camera.DrawDebugText(screen, "just a test", 0, 10, 2, tetra3d.NewColor(1, 1, 1, 1))
+
+    delta := time.Since(song.StartTime)
+
+    face := &text.GoTextFace{
+        Source: engine.Font,
+        Size: 24,
+    }
+
+    var textOptions text.DrawOptions
+    textOptions.GeoM.Translate(850, 100)
+    text.Draw(screen, fmt.Sprintf("Time: %v / %v", delta.Truncate(time.Second), song.SongLength.Truncate(time.Second)), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Notes Hit: %d", song.NotesHit), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Notes Missed: %d", song.NotesMissed), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    percent := 0
+    if song.TotalNotes() > 0 {
+        percent = song.NotesHit * 100 / song.TotalNotes()
+    }
+    text.Draw(screen, fmt.Sprintf("Notes: %d%%", percent), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Score: %d", song.Score), face, &textOptions)
+
 }
 
 // vertical layout
