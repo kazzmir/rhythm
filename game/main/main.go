@@ -1102,12 +1102,12 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
     _ = topPlane
     _ = bottomPlane
 
-	mesh.AddMeshPart(tetra3d.NewMaterial("Front"), append(tesselate(verts, frontPlane), )...)
-    mesh.AddMeshPart(tetra3d.NewMaterial("Right"), append(tesselate(verts, rightPlane), )...)
-    mesh.AddMeshPart(tetra3d.NewMaterial("Left"), append(tesselate(verts, leftPlane), )...)
-    mesh.AddMeshPart(tetra3d.NewMaterial("Back"), append(tesselate(verts, backPlane), )...)
-    mesh.AddMeshPart(tetra3d.NewMaterial("Top"), append(tesselate(verts, topPlane), )...)
-    mesh.AddMeshPart(tetra3d.NewMaterial("Bottom"), append(tesselate(verts, bottomPlane), )...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Front"), tesselate(verts, frontPlane)...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Right"), tesselate(verts, rightPlane)...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Left"), tesselate(verts, leftPlane)...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Back"), tesselate(verts, backPlane)...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Top"), tesselate(verts, topPlane)...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Bottom"), tesselate(verts, bottomPlane)...)
 
     for _, part := range mesh.MeshParts {
         name := part.Material.Name()
