@@ -10,6 +10,7 @@ import (
     "image/color"
     "math/rand/v2"
     "path/filepath"
+    "context"
 
     "github.com/kazzmir/rhythm/lib/coroutine"
     "github.com/kazzmir/rhythm/lib/colorconv"
@@ -94,6 +95,12 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
         widget.GraphicOpts.Image(albumImage),
     )
 
+    mainQuit, mainCancel := context.WithCancel(context.Background())
+    defer mainCancel()
+
+    playSongQuit, playSongCancel := context.WithCancel(mainQuit)
+    defer playSongCancel()
+
     songList := widget.NewList(
         widget.ListOpts.EntryFontFace(&tface),
         widget.ListOpts.SliderParams(&widget.SliderParams{
@@ -133,6 +140,37 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
                 widget.GraphicOpts.Image(newImage),
             )
             songContainer.ReplaceChild(oldAlbum, albumGraphic)
+
+            playSongCancel()
+            playSongQuit, playSongCancel = context.WithCancel(mainQuit)
+
+            localQuit := playSongQuit
+            go func() {
+                select {
+                    case <-time.After(200 * time.Millisecond):
+                    case <-localQuit.Done():
+                        return
+                }
+
+                songPlayer, _, _, err := loadSong(engine.AudioContext, os.DirFS(song))
+                if err != nil {
+                    return
+                }
+                guitarPlayer, _, err := loadGuitarSong(engine.AudioContext, os.DirFS(song))
+                if err != nil {
+                    return
+                }
+
+                songPlayer.Play()
+                guitarPlayer.Play()
+
+                select {
+                    case <-localQuit.Done():
+                        songPlayer.Pause()
+                        guitarPlayer.Pause()
+                }
+
+            }()
         }),
         widget.ListOpts.EntryColor(&widget.ListEntryColor{
             Selected: color.NRGBA{R: 100, G: 150, B: 200, A: 255},
