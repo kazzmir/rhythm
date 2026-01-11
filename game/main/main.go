@@ -1499,11 +1499,10 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         // log.Printf("Notes: %v", len(notes))
         for _, noteModel := range notes {
-            elapsed := noteModel.Note.Start - delta
-
-            if noteModel.Note.State == NoteStateHit || elapsed < -time.Second * 1 {
+            if noteModel.Note.State == NoteStateHit || noteModel.Note.End - delta < -time.Second * 1 {
                 scene.Root.RemoveChildren(noteModel.Model)
             } else {
+                elapsed := noteModel.Note.Start - delta
 
                 position := noteModel.Model.WorldPosition()
                 x := position.X
@@ -1535,8 +1534,10 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             }
             if !fret.Press.IsZero() {
                 button.Color.A = min(1, button.Color.A + 0.06)
+                button.SetLocalScale(1, 1, 1)
             } else {
                 button.Color.A = max(0.3, button.Color.A - 0.01)
+                button.SetLocalScale(1, 0.3, 1)
             }
         }
 
