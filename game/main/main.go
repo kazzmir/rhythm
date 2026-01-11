@@ -58,6 +58,10 @@ type Note struct {
     Sustain bool
 }
 
+func (note *Note) HasSustain() bool {
+    return note.End - note.Start > time.Millisecond * 200
+}
+
 type Fret struct {
     InUse bool
     Notes []Note
@@ -1312,11 +1316,22 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
         return mesh
     }
 
-    redMesh := makeMesh(tetra3d.NewColor(1, 0, 0, 1))
-    greenMesh := makeMesh(tetra3d.NewColor(0, 1, 0, 1))
-    yellowMesh := makeMesh(tetra3d.NewColor(1, 1, 0, 1))
-    blueMesh := makeMesh(tetra3d.NewColor(0, 0, 1, 1))
-    orangeMesh := makeMesh(tetra3d.NewColor(1, 0.5, 0, 1))
+    fretColor := func(fret int) tetra3d.Color {
+        switch fret {
+            case 0: return tetra3d.NewColor(1, 0, 0, 1)
+            case 1: return tetra3d.NewColor(0, 1, 0, 1)
+            case 2: return tetra3d.NewColor(1, 1, 0, 1)
+            case 3: return tetra3d.NewColor(0, 0, 1, 1)
+            case 4: return tetra3d.NewColor(1, 0.5, 0, 1)
+            default: return tetra3d.NewColor(1, 1, 1, 1)
+        }
+    }
+
+    redMesh := makeMesh(fretColor(0))
+    greenMesh := makeMesh(fretColor(1))
+    yellowMesh := makeMesh(fretColor(2))
+    blueMesh := makeMesh(fretColor(3))
+    orangeMesh := makeMesh(fretColor(4))
 
     neckMesh := make3dRectangle(70, 5, 350, tetra3d.NewColor(1, 1, 1, 1))
     neckModel := tetra3d.NewModel("Neck", neckMesh)
@@ -1443,6 +1458,15 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
             model.Move(float32(xPos), 0, float32(-note.Start.Milliseconds() / 50))
             scene.Root.AddChildren(model)
+
+            if note.HasSustain() {
+                sustainMesh := make3dRectangle(4, 1, float32(note.End.Microseconds() - note.Start.Microseconds()) / 20000, fretColor(fretI))
+                sustainModel := tetra3d.NewModel("Sustain", sustainMesh)
+                sustainModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+                // sustainModel.Move(float32(xPos), 0, float32(-note.Start.Microseconds()/20000) - (float32(note.End.Microseconds() - note.Start.Microseconds()) / 40000))
+                // scene.Root.AddChildren(sustainModel)
+                model.AddChildren(sustainModel)
+            }
 
             notes = append(notes, NoteModel{Model: model, Note: note})
         }
