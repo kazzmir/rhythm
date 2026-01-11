@@ -1410,7 +1410,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     }
 
     camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
-    camera.SetFar(280)
+    camera.SetFar(310)
     // camera := tetra3d.NewCamera(300, 300)
     camera.SetFieldOfView(90)
     // camera.SetLocalPosition(0, 10, 500)
@@ -1508,6 +1508,12 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
                 x := position.X
                 y := position.Y
 
+                alpha := float32(1.0)
+                if elapsed > 0 {
+                    alpha = min(1, float32(time.Second * 2) / float32(elapsed))
+                }
+
+                noteModel.Model.Color.A = alpha
 
                 noteModel.Model.SetWorldPosition(x, y, float32(float64(-(elapsed.Microseconds())) / 20000))
                 notesOut = append(notesOut, noteModel)
