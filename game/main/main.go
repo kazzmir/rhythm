@@ -1020,7 +1020,7 @@ func NewCylinderMesh(sideCount int, radius, height float32) *tetra3d.Mesh {
 
 	for i := 0; i < sideCount; i++ {
 
-		pos := tetra3d.NewVector3(radius, height/2, 0)
+		pos := tetra3d.NewVector3(radius, height, 0)
 		pos = pos.Rotate(0, 1, 0, float32(i)/float32(sideCount)*math.Pi*2)
         topVerts = append(topVerts, len(verts))
 		verts = append(verts, tetra3d.NewVertex(pos.X, pos.Y, pos.Z, 0, 0))
@@ -1030,7 +1030,7 @@ func NewCylinderMesh(sideCount int, radius, height float32) *tetra3d.Mesh {
     var bottomVerts []int
 	for i := 0; i < sideCount; i++ {
 
-		pos := tetra3d.NewVector3(radius, -height/2, 0)
+		pos := tetra3d.NewVector3(radius, 0, 0)
 		pos = pos.Rotate(0, 1, 0, float32(i)/float32(sideCount)*math.Pi*2)
         bottomVerts = append(bottomVerts, len(verts))
 		verts = append(verts, tetra3d.NewVertex(pos.X, pos.Y, pos.Z, 0, 0))
@@ -1117,27 +1117,19 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
     topPlane := []int{2, 6, 7, 3}
     bottomPlane := []int{0, 4, 5, 1}
 
-    verts[frontPlane[0]].U = 0
-    verts[frontPlane[0]].V = 0
-    verts[frontPlane[1]].U = 1
-    verts[frontPlane[1]].V = 0
-    verts[frontPlane[2]].U = 1
-    verts[frontPlane[2]].V = 1
-    verts[frontPlane[3]].U = 0
-    verts[frontPlane[3]].V = 1
+    verts[topPlane[0]].U = 0
+    verts[topPlane[0]].V = 0
+
+    verts[topPlane[1]].U = 1
+    verts[topPlane[1]].V = 0
+
+    verts[topPlane[2]].U = 1
+    verts[topPlane[2]].V = 1
+
+    verts[topPlane[3]].U = 0
+    verts[topPlane[3]].V = 1
 
     mesh.AddVertices(verts...)
-
-    /*
-    verts := []tetra3d.VertexInfo{
-        tetra3d.NewVertex(x0, y0, z0, 0, 0), // 0
-        tetra3d.NewVertex(x1, y0, z0, 0, 0), // 0
-        tetra3d.NewVertex(x1, y1, z0, 0, 0), // 0
-        tetra3d.NewVertex(x0, y1, z0, 0, 0), // 0
-
-        tetra3d.NewVertex(x0, y1, z0, 0, 0), // 0
-    }
-    */
 
     _ = frontPlane
     _ = rightPlane
@@ -1146,12 +1138,14 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
     _ = topPlane
     _ = bottomPlane
 
-    mesh.AddMeshPart(tetra3d.NewMaterial("Front"), tesselate(verts, frontPlane)...)
+    // mesh.AddMeshPart(tetra3d.NewMaterial("Front"), tesselate(verts, frontPlane)...)
     // mesh.AddMeshPart(tetra3d.NewMaterial("Right"), tesselate(verts, rightPlane)...)
     // mesh.AddMeshPart(tetra3d.NewMaterial("Left"), tesselate(verts, leftPlane)...)
-    mesh.AddMeshPart(tetra3d.NewMaterial("Back"), tesselate(verts, backPlane)...)
     mesh.AddMeshPart(tetra3d.NewMaterial("Top"), tesselate(verts, topPlane)...)
+    /*
+    mesh.AddMeshPart(tetra3d.NewMaterial("Back"), tesselate(verts, backPlane)...)
     mesh.AddMeshPart(tetra3d.NewMaterial("Bottom"), tesselate(verts, bottomPlane)...)
+    */
 
     for _, part := range mesh.MeshParts {
         name := part.Material.Name()
