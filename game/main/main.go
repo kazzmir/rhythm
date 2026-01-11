@@ -1335,6 +1335,10 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
         }
     }
 
+    timeToZ := func(t time.Duration) float32 {
+        return float32(t.Microseconds()) / 20000
+    }
+
     redMesh := makeMesh(fretColor(0))
     greenMesh := makeMesh(fretColor(1))
     yellowMesh := makeMesh(fretColor(2))
@@ -1471,7 +1475,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             noteModel := NoteModel{Model: model, Note: note}
 
             if note.HasSustain() {
-                sustainMesh := make3dRectangle(4, 1, float32(note.End.Microseconds() - note.Start.Microseconds()) / 20000, fretColor(fretI))
+                sustainMesh := make3dRectangle(4, 1, timeToZ(note.End - note.Start), fretColor(fretI))
                 sustainModel := tetra3d.NewModel("Sustain", sustainMesh)
                 sustainModel.Color = tetra3d.NewColor(1, 1, 1, 1)
                 noteModel.SustainModel = sustainModel
@@ -1561,7 +1565,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
                     noteModel.Model.Color.A = alpha
 
-                    noteModel.Model.SetWorldPosition(x, y, float32(float64(-(elapsed.Microseconds())) / 20000))
+                    noteModel.Model.SetWorldPosition(x, y, timeToZ(-elapsed))
                 }
 
                 notesOut = append(notesOut, noteModel)
@@ -1824,6 +1828,10 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     text.Draw(screen, fmt.Sprintf("Notes: %d%%", percent), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
     text.Draw(screen, fmt.Sprintf("Score: %d", song.Score), face, &textOptions)
+
+    textOptions.GeoM.Reset()
+    textOptions.GeoM.Translate(10, 10)
+    text.Draw(screen, fmt.Sprintf("FPS: %0.2f", ebiten.ActualFPS()), face, &textOptions)
 
 }
 
