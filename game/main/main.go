@@ -133,6 +133,8 @@ type Song struct {
     NotesMissed int
     SongLength time.Duration
 
+    Counter uint64
+
     Score int
 
     SongInfo SongInfo
@@ -158,6 +160,8 @@ func (song *Song) Close() {
 }
 
 func (song *Song) Update(input *Input, flameMaker FlameMaker) {
+    song.Counter += 1
+
     song.DoSong.Do(func(){
         song.Song.Play()
         song.Guitar.Play()
@@ -299,6 +303,10 @@ func (song *Song) Update(input *Input, flameMaker FlameMaker) {
                         note.Sustain = false
                     } else {
                         song.Score += 1
+
+                        if song.Counter % 5 == 0 {
+                            flameMaker.MakeFlame(fretIndex)
+                        }
                     }
                 }
             }
@@ -1444,6 +1452,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     type NoteModel struct {
         Model *tetra3d.Model
         Note *Note
+        SustainModel *tetra3d.Model
     }
 
     var notes []NoteModel
@@ -1459,16 +1468,19 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             model.Move(float32(xPos), 0, float32(-note.Start.Milliseconds() / 50))
             scene.Root.AddChildren(model)
 
+            noteModel := NoteModel{Model: model, Note: note}
+
             if note.HasSustain() {
                 sustainMesh := make3dRectangle(4, 1, float32(note.End.Microseconds() - note.Start.Microseconds()) / 20000, fretColor(fretI))
                 sustainModel := tetra3d.NewModel("Sustain", sustainMesh)
                 sustainModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+                noteModel.SustainModel = sustainModel
                 // sustainModel.Move(float32(xPos), 0, float32(-note.Start.Microseconds()/20000) - (float32(note.End.Microseconds() - note.Start.Microseconds()) / 40000))
                 // scene.Root.AddChildren(sustainModel)
                 model.AddChildren(sustainModel)
             }
 
-            notes = append(notes, NoteModel{Model: model, Note: note})
+            notes = append(notes, noteModel)
         }
     }
 
@@ -1523,23 +1535,35 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         // log.Printf("Notes: %v", len(notes))
         for _, noteModel := range notes {
-            if noteModel.Note.State == NoteStateHit || noteModel.Note.End - delta < -time.Second * 1 {
+            if (noteModel.Note.State == NoteStateHit && !noteModel.Note.HasSustain()) || noteModel.Note.End - delta < -time.Second * 1 {
                 scene.Root.RemoveChildren(noteModel.Model)
             } else {
-                elapsed := noteModel.Note.Start - delta
 
-                position := noteModel.Model.WorldPosition()
-                x := position.X
-                y := position.Y
+                if noteModel.Note.State == NoteStateHit && noteModel.Note.HasSustain() {
+                    noteModel.Model.Color.A = 0
 
-                alpha := float32(1.0)
-                if elapsed > 0 {
-                    alpha = min(1, float32(time.Second * 2) / float32(elapsed))
+                    z := min(1, max(0, float32(noteModel.Note.End - delta) / float32(noteModel.Note.End - noteModel.Note.Start)))
+
+                    noteModel.SustainModel.SetLocalScale(1, 1, z)
+                    position := noteModel.Model.WorldPosition()
+                    noteModel.Model.SetWorldPosition(position.X, position.Y, 0)
+                } else {
+                    elapsed := noteModel.Note.Start - delta
+
+                    position := noteModel.Model.WorldPosition()
+                    x := position.X
+                    y := position.Y
+
+                    alpha := float32(1.0)
+                    if elapsed > 0 {
+                        alpha = min(1, float32(time.Second * 2) / float32(elapsed))
+                    }
+
+                    noteModel.Model.Color.A = alpha
+
+                    noteModel.Model.SetWorldPosition(x, y, float32(float64(-(elapsed.Microseconds())) / 20000))
                 }
 
-                noteModel.Model.Color.A = alpha
-
-                noteModel.Model.SetWorldPosition(x, y, float32(float64(-(elapsed.Microseconds())) / 20000))
                 notesOut = append(notesOut, noteModel)
             }
 
