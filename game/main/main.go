@@ -1154,7 +1154,6 @@ func NewFlameManager() *FlameManager {
     var images []*ebiten.Image
 
     for _, path := range files {
-        log.Printf("Loading flame image: %v", path.Name())
         if path.IsDir() {
             continue
         }
