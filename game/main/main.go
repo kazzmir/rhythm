@@ -1306,6 +1306,56 @@ type Particle struct {
     Movement tetra3d.Vector3
 }
 
+func loadSkin() *ebiten.Image {
+
+    base := "skins"
+    files, err := data.SkinsFS.ReadDir(base)
+    if err == nil {
+        // choose one at random, but go through all of them until one loads
+        for _, i := range rand.Perm(len(files)) {
+            path := files[i]
+            if path.IsDir() {
+                continue
+            }
+            full := filepath.Join(base, path.Name())
+
+            out := func() (*ebiten.Image, error) {
+                file, err := data.SkinsFS.Open(full)
+                if err == nil {
+                    defer file.Close()
+                    return loadJpeg(bufio.NewReader(file))
+                }
+                return nil, err
+            }
+
+            texture, err := out()
+            if err == nil {
+                return texture
+            }
+        }
+    }
+
+    /*
+    file, err := os.Open("skins/stars.jpg")
+    if err != nil {
+        log.Printf("Unable to open neck texture file: %v", err)
+    } else {
+        defer file.Close()
+        texture, err := loadJpeg(bufio.NewReader(file))
+        if err != nil {
+            log.Printf("Unable to load neck texture image: %v", err)
+        } else {
+            return texture
+        }
+    }
+    */
+
+    // fallback
+    grey := ebiten.NewImage(1, 1)
+    grey.Fill(color.NRGBA{R: 50, G: 50, B: 50, A: 255})
+    return grey
+}
+
 func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
     song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
@@ -1350,22 +1400,8 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
     neckModel.Move(0, -5, 40)
 
-    neckFile, err := os.Open("guitar2.jpg")
-    if err != nil {
-        log.Printf("Unable to open neck texture file: %v", err)
-    } else {
-        neckTextureImg, err := loadJpeg(bufio.NewReader(neckFile))
-        if err != nil {
-            log.Printf("Unable to load neck texture image: %v", err)
-        } else {
-            neckMesh.MeshPartByMaterialName("Top").Material.Texture = neckTextureImg
-        }
-    }
-    /*
-    grey := ebiten.NewImage(1, 1)
-    grey.Fill(color.NRGBA{R: 50, G: 50, B: 50, A: 255})
-    neckMesh.MeshPartByMaterialName("Top").Material.Texture = grey
-    */
+    guitarSkin := loadSkin()
+    neckMesh.MeshPartByMaterialName("Top").Material.Texture = guitarSkin
 
     // flameManager := NewFlameManager()
     particleManager := NewParticleManager(scene)
@@ -1806,7 +1842,7 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
 
     // camera.DrawDebugText(screen, "just a test", 0, 10, 2, tetra3d.NewColor(1, 1, 1, 1))
 
-    delta := time.Since(song.StartTime)
+    delta := min(song.SongLength, time.Since(song.StartTime))
 
     face := &text.GoTextFace{
         Source: engine.Font,
