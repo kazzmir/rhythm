@@ -1493,40 +1493,34 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         delta := time.Since(song.StartTime)
 
-        for i, noteModel := range notes {
-            position := noteModel.Model.WorldPosition()
-            x := position.X
-            y := position.Y
+        song.Update(engine.Input, particleManager)
 
+        var notesOut []NoteModel
+
+        // log.Printf("Notes: %v", len(notes))
+        for _, noteModel := range notes {
             elapsed := noteModel.Note.Start - delta
 
-            noteModel.Model.SetWorldPosition(x, y, float32(float64(-(elapsed.Microseconds())) / 20000))
+            if noteModel.Note.State == NoteStateHit || elapsed < -time.Second * 1 {
+                scene.Root.RemoveChildren(noteModel.Model)
+            } else {
 
-            if i == 0 {
-                /*
-                log.Printf("Note %d position Z: %v (start: %v, elapsed: %v)", i, noteModel.Model.WorldPosition().Z, noteModel.Note.Start, elapsed)
+                position := noteModel.Model.WorldPosition()
+                x := position.X
+                y := position.Y
 
-                x := noteModel.Model.WorldPosition().X
-                y := noteModel.Model.WorldPosition().Y
-                z := noteModel.Model.WorldPosition().Z
-                if z < 1 && z > -1 {
-                    log.Printf("X=%v Y=%v Z=%v", x, y, z)
-                    for {
-                        if yield() != nil {
-                            break
-                        }
-                    }
-                }
-                */
 
+                noteModel.Model.SetWorldPosition(x, y, float32(float64(-(elapsed.Microseconds())) / 20000))
+                notesOut = append(notesOut, noteModel)
             }
 
             // noteModel.Move(0, 0, 0.2)
         }
 
+        notes = notesOut
+
         // model.SetLocalRotation(model.LocalRotation().Rotated(0.5, 0.2, 0.5, 0.02))
 
-        song.Update(engine.Input, particleManager)
         particleManager.Update()
 
         for i := range song.Frets {
