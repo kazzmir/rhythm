@@ -493,13 +493,14 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     }
 }
 
-func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face *text.GoTextFace, background *Background) SongSettings {
+func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face *text.GoTextFace, background *Background) (SongSettings, bool) {
     var settings SongSettings
     settings.Difficulty = "medium"
 
     var tface text.Face = face
 
     quit := false
+    canceled := false
 
     var ui ebitenui.UI
 
@@ -573,6 +574,7 @@ func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face 
             switch key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
                     quit = true
+                    canceled = true
                 case ebiten.KeyDown:
                     ui.ChangeFocus(widget.FOCUS_NEXT)
                 case ebiten.KeyUp:
@@ -587,7 +589,7 @@ func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face 
         }
     }
 
-    return settings
+    return settings, canceled
 }
 
 func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
@@ -625,10 +627,14 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
         if selectedSong != "" {
 
             yield()
-            setup := setupSong(yield, engine, selectedSong, face, background)
-            yield()
+            setup, canceled := setupSong(yield, engine, selectedSong, face, background)
+            // yield()
 
-            playSong(yield, engine, selectedSong, setup)
+            if !canceled {
+                playSong(yield, engine, selectedSong, setup)
+            } else {
+                yield()
+            }
         }
     })
 
