@@ -1896,7 +1896,7 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     }
 
     var textOptions text.DrawOptions
-    textOptions.GeoM.Translate(850, 100)
+    textOptions.GeoM.Translate(ScreenWidth - 250, 10)
     text.Draw(screen, fmt.Sprintf("Time: %v / %v", delta.Truncate(time.Second), song.SongLength.Truncate(time.Second)), face, &textOptions)
     textOptions.GeoM.Translate(0, 30)
     text.Draw(screen, fmt.Sprintf("Notes Hit: %d", song.NotesHit), face, &textOptions)
@@ -1918,6 +1918,31 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     textOptions.GeoM.Translate(0, 20)
     position := camera.WorldPosition()
     text.Draw(screen, fmt.Sprintf("Camera: X: %v Y: %v Z: %v", position.X, position.Y, position.Z), face, &textOptions)
+
+    if delta < time.Second * 2 && song.SongInfo.Name != "" {
+        textOptions.GeoM.Translate(0, 20)
+        face = &text.GoTextFace{
+            Source: engine.Font,
+            Size: 30,
+        }
+
+        if delta < time.Millisecond * 300 {
+            textOptions.ColorScale.ScaleAlpha(float32(delta) / float32(time.Millisecond * 300))
+        } else if delta > time.Millisecond * 1700 {
+            diff := delta - time.Millisecond * 1700
+            alpha := float32(time.Millisecond * 300 - diff) / float32(time.Millisecond * 300)
+            if alpha < 0 {
+                alpha = 0
+            }
+            textOptions.ColorScale.ScaleAlpha(alpha)
+        }
+
+        textOptions.GeoM.Reset()
+        textOptions.GeoM.Translate(10, 60)
+        text.Draw(screen, fmt.Sprintf("Song: %s", song.SongInfo.Name), face, &textOptions)
+        textOptions.GeoM.Translate(0, 40)
+        text.Draw(screen, fmt.Sprintf("Artist: %s", song.SongInfo.Artist), face, &textOptions)
+    }
 
 }
 
