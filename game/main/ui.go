@@ -456,10 +456,26 @@ func (background *Background) Draw(screen *ebiten.Image) {
     screen.DrawTriangles(vertices, []uint16{0, 1, 2, 2, 3, 0}, background.Source, nil)
 }
 
+func makeInputMenu(yield coroutine.YieldFunc) *widget.Container {
+    container := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewGridLayout(
+            widget.GridLayoutOpts.Columns(1),
+            widget.GridLayoutOpts.DefaultStretch(true, false),
+            widget.GridLayoutOpts.Spacing(0, 10),
+            widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
+        )),
+    )
+
+    return container
+}
+
 func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace) {
     quit := false
 
     var tface text.Face = face
+
+    ui := ebitenui.UI{
+    }
 
     rootContainer := widget.NewContainer(
         widget.ContainerOpts.Layout(widget.NewGridLayout(
@@ -474,7 +490,7 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     var makeFullscreenButton func() *widget.Button
 
-    maxButtonWidth := 250
+    maxButtonWidth := 320
 
     makeFullscreenButton = func() *widget.Button {
         oldButton := fullscreenButton
@@ -501,13 +517,15 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
         args.Button.SetText(fmt.Sprintf("VSync Toggle: %v", ebiten.IsVsyncEnabled()))
     }))
 
+    rootContainer.AddChild(makeButton(fmt.Sprintf("Configure input/joystick"), tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
+        ui.Container = makeInputMenu(yield)
+    }))
+
     rootContainer.AddChild(makeButton("Back", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
         quit = true
     }))
 
-    ui := ebitenui.UI{
-        Container: rootContainer,
-    }
+    ui.Container = rootContainer
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
