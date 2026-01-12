@@ -10,6 +10,7 @@ import (
     "image/color"
     "math/rand/v2"
     "path/filepath"
+    "context"
 
     "github.com/kazzmir/rhythm/lib/coroutine"
     "github.com/kazzmir/rhythm/lib/colorconv"
@@ -94,6 +95,12 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
         widget.GraphicOpts.Image(albumImage),
     )
 
+    mainQuit, mainCancel := context.WithCancel(context.Background())
+    defer mainCancel()
+
+    playSongQuit, playSongCancel := context.WithCancel(mainQuit)
+    defer playSongCancel()
+
     songList := widget.NewList(
         widget.ListOpts.EntryFontFace(&tface),
         widget.ListOpts.SliderParams(&widget.SliderParams{
@@ -133,6 +140,37 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
                 widget.GraphicOpts.Image(newImage),
             )
             songContainer.ReplaceChild(oldAlbum, albumGraphic)
+
+            playSongCancel()
+            playSongQuit, playSongCancel = context.WithCancel(mainQuit)
+
+            localQuit := playSongQuit
+            go func() {
+                select {
+                    case <-time.After(200 * time.Millisecond):
+                    case <-localQuit.Done():
+                        return
+                }
+
+                songPlayer, _, _, err := loadSong(engine.AudioContext, os.DirFS(song))
+                if err != nil {
+                    return
+                }
+                guitarPlayer, _, err := loadGuitarSong(engine.AudioContext, os.DirFS(song))
+                if err != nil {
+                    return
+                }
+
+                songPlayer.Play()
+                guitarPlayer.Play()
+
+                select {
+                    case <-localQuit.Done():
+                        songPlayer.Pause()
+                        guitarPlayer.Pause()
+                }
+
+            }()
         }),
         widget.ListOpts.EntryColor(&widget.ListEntryColor{
             Selected: color.NRGBA{R: 100, G: 150, B: 200, A: 255},
@@ -493,13 +531,14 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     }
 }
 
-func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face *text.GoTextFace, background *Background) SongSettings {
+func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face *text.GoTextFace, background *Background) (SongSettings, bool) {
     var settings SongSettings
     settings.Difficulty = "medium"
 
     var tface text.Face = face
 
     quit := false
+    canceled := false
 
     var ui ebitenui.UI
 
@@ -573,6 +612,7 @@ func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face 
             switch key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
                     quit = true
+                    canceled = true
                 case ebiten.KeyDown:
                     ui.ChangeFocus(widget.FOCUS_NEXT)
                 case ebiten.KeyUp:
@@ -587,7 +627,7 @@ func setupSong(yield coroutine.YieldFunc, engine *Engine, songPath string, face 
         }
     }
 
-    return settings
+    return settings, canceled
 }
 
 func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
@@ -625,10 +665,14 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
         if selectedSong != "" {
 
             yield()
-            setup := setupSong(yield, engine, selectedSong, face, background)
-            yield()
+            setup, canceled := setupSong(yield, engine, selectedSong, face, background)
+            // yield()
 
-            playSong(yield, engine, selectedSong, setup)
+            if !canceled {
+                playSong(yield, engine, selectedSong, setup)
+            } else {
+                yield()
+            }
         }
     })
 

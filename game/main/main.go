@@ -3,6 +3,9 @@ package main
 import (
     "log"
     "time"
+    "image"
+    "math"
+    "math/rand/v2"
     "os"
     "io"
     "io/fs"
@@ -20,6 +23,7 @@ import (
 
     "github.com/kazzmir/rhythm/lib/coroutine"
     "github.com/kazzmir/rhythm/lib/colorconv"
+    "github.com/kazzmir/rhythm/data"
 
     smflib "gitlab.com/gomidi/midi/v2/smf"
 
@@ -31,6 +35,8 @@ import (
     "github.com/hajimehoshi/ebiten/v2/vector"
     // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
+
+    "github.com/solarlune/tetra3d"
 )
 
 const ScreenWidth = 1400
@@ -51,6 +57,10 @@ type Note struct {
     End time.Duration
     State NoteState
     Sustain bool
+}
+
+func (note *Note) HasSustain() bool {
+    return note.End - note.Start > time.Millisecond * 200
 }
 
 type Fret struct {
@@ -108,6 +118,10 @@ type SongInfo struct {
     SongLength time.Duration
 }
 
+type FlameMaker interface {
+    MakeFlame(fret int)
+}
+
 type Song struct {
     Frets []Fret
     StartTime time.Time
@@ -119,6 +133,8 @@ type Song struct {
     NotesHit int
     NotesMissed int
     SongLength time.Duration
+
+    Counter uint64
 
     Score int
 
@@ -144,7 +160,9 @@ func (song *Song) Close() {
     }
 }
 
-func (song *Song) Update(input *Input) {
+func (song *Song) Update(input *Input, flameMaker FlameMaker) {
+    song.Counter += 1
+
     song.DoSong.Do(func(){
         song.Song.Play()
         song.Guitar.Play()
@@ -205,14 +223,14 @@ func (song *Song) Update(input *Input) {
     }
 
     delta := time.Since(song.StartTime)
-    for i := range song.Frets {
+    for fretIndex := range song.Frets {
         /*
         if i == 1 {
             break
         }
         */
 
-        fret := &song.Frets[i]
+        fret := &song.Frets[fretIndex]
 
         if fret.StartNote < len(fret.Notes) {
             for fret.StartNote < len(fret.Notes) && fret.Notes[fret.StartNote].End < delta + NoteThresholdLow {
@@ -264,6 +282,7 @@ func (song *Song) Update(input *Input) {
 
                     if pressed {
                         notesHit = append(notesHit, note)
+                        flameMaker.MakeFlame(fretIndex)
                     }
 
                     /*
@@ -285,6 +304,10 @@ func (song *Song) Update(input *Input) {
                         note.Sustain = false
                     } else {
                         song.Score += 1
+
+                        if song.Counter % 5 == 0 {
+                            flameMaker.MakeFlame(fretIndex)
+                        }
                     }
                 }
             }
@@ -414,6 +437,63 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
     return foundFile, nil
 }
 
+func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Duration, func(), error) {
+    songFile, err := findFile(basefs, "song.ogg")
+    if err == nil {
+        defer songFile.Close()
+
+        var cleanup func()
+
+        songPlayer, songLength, cleanup, err := loadOgg(audioContext, songFile, "song.ogg")
+        if err != nil {
+            return nil, 0, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.ogg", err)
+        }
+
+        return songPlayer, songLength, cleanup, nil
+    } else {
+        songFile, err = findFile(basefs, "song.mp3")
+        if err == nil {
+            defer songFile.Close()
+
+            var cleanup func()
+            songPlayer, songLength, cleanup, err := loadMp3(audioContext, songFile, "song.mp3")
+            if err != nil {
+                return nil, 0, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.mp3", err)
+            }
+
+            return songPlayer, songLength, cleanup, nil
+        } else {
+            return nil, 0, nil, fmt.Errorf("Unable to find song.ogg or song.mp3 in song directory: %v", err)
+        }
+    }
+}
+
+func loadGuitarSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
+    guitarFile, err := findFile(basefs, "guitar.ogg")
+    if err == nil {
+        defer guitarFile.Close()
+        var cleanup func()
+        guitarPlayer, _, cleanup, err := loadOgg(audioContext, guitarFile, "guitar.ogg")
+        if err != nil {
+            return nil, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.ogg", err)
+        }
+        return guitarPlayer, cleanup, nil
+    } else {
+        guitarFile, err = findFile(basefs, "guitar.mp3")
+        if err == nil {
+            defer guitarFile.Close()
+            var cleanup func()
+            guitarPlayer, _, cleanup, err := loadMp3(audioContext, guitarFile, "guitar.mp3")
+            if err != nil {
+                return nil, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.mp3", err)
+            }
+            return guitarPlayer, cleanup, nil
+        } else {
+            return nil, nil, fmt.Errorf("Unable to find guitar.ogg in song directory: %v", err)
+        }
+    }
+}
+
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
     song := Song{
         Frets: make([]Fret, 5),
@@ -449,58 +529,15 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
     var songLength time.Duration
     var songPlayer *audio.Player
 
-    songFile, err := findFile(basefs, "song.ogg")
-    if err == nil {
-        defer songFile.Close()
-
-        var cleanup func()
-
-        songPlayer, songLength, cleanup, err = loadOgg(audioContext, songFile, "song.ogg")
-        if err != nil {
-            return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.ogg", err)
-        }
-        song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
-    } else {
-        songFile, err = findFile(basefs, "song.mp3")
-        if err == nil {
-            defer songFile.Close()
-
-            var cleanup func()
-            songPlayer, songLength, cleanup, err = loadMp3(audioContext, songFile, "song.mp3")
-            if err != nil {
-                return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.mp3", err)
-            }
-
-            song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
-        } else {
-            return nil, fmt.Errorf("Unable to find song.ogg or song.mp3 in song directory '%v': %v", songDirectory, err)
-        }
+    songPlayer, songLength, cleanup, err := loadSong(audioContext, basefs)
+    if err != nil {
+        return nil, fmt.Errorf("Unable to load song audio: %v", err)
     }
+    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
 
-    var guitarPlayer *audio.Player
-
-    guitarFile, err := findFile(basefs, "guitar.ogg")
-    if err == nil {
-        defer guitarFile.Close()
-        var cleanup func()
-        guitarPlayer, _, cleanup, err = loadOgg(audioContext, guitarFile, "guitar.ogg")
-        if err != nil {
-            return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.ogg", err)
-        }
-        song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
-    } else {
-        guitarFile, err = findFile(basefs, "guitar.mp3")
-        if err == nil {
-            defer guitarFile.Close()
-            var cleanup func()
-            guitarPlayer, _, cleanup, err = loadMp3(audioContext, guitarFile, "guitar.mp3")
-            if err != nil {
-                return nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.mp3", err)
-            }
-            song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
-        } else {
-            return nil, fmt.Errorf("Unable to find guitar.ogg in song directory '%v': %v", songDirectory, err)
-        }
+    guitarPlayer, cleanup, err := loadGuitarSong(audioContext, basefs)
+    if err != nil {
+        return nil, fmt.Errorf("Unable to load guitar audio: %v", err)
     }
 
     song.SongLength = songLength
@@ -666,6 +703,8 @@ type Engine struct {
     Coroutine *coroutine.Coroutine
 
     GamepadIds map[ebiten.GamepadID]struct{}
+
+    // GuitarButtonMesh *tetra3d.Mesh
 }
 
 func (engine *Engine) PushDrawer(drawer func(screen *ebiten.Image)) {
@@ -684,6 +723,7 @@ func loadMp3(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
         return nil, 0, nil, err
     }
 
+    // this decodes on the fly, so we need all the data in memory when we pass a reader
     songReader, err := mp3.DecodeWithSampleRate(audioContext.SampleRate(), bytes.NewReader(allData))
     if err != nil {
         return nil, 0, nil, err
@@ -709,6 +749,7 @@ func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
         return nil, 0, nil, err
     }
 
+    // this decodes on the fly, so we need all the data in memory when we pass a reader
     songReader, err := vorbis.DecodeWithSampleRate(audioContext.SampleRate(), bytes.NewReader(allData))
     if err != nil {
         return nil, 0, nil, err
@@ -749,6 +790,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
 
             return mainMenu(engine, yield)
         }),
+        // GuitarButtonMesh: tetra3d.NewCylinderMesh(2, 40, 50, false),
     }
 
     /*
@@ -852,6 +894,534 @@ func DefaultSongSettings() SongSettings {
     }
 }
 
+func is_convex(a, b, c tetra3d.VertexInfo, normal tetra3d.Vector3) bool {
+    a_vec := tetra3d.NewVector3(a.X, a.Y, a.Z)
+    b_vec := tetra3d.NewVector3(b.X, b.Y, b.Z)
+    c_vec := tetra3d.NewVector3(c.X, c.Y, c.Z)
+
+    ab := a_vec.Sub(b_vec)
+    cb := c_vec.Sub(b_vec)
+
+    cross := ab.Cross(cb)
+    return cross.Dot(normal) > 0
+}
+
+func pointInTriangle(p, a, b, c tetra3d.VertexInfo, normal tetra3d.Vector3) bool {
+    p_vec := tetra3d.NewVector3(p.X, p.Y, p.Z)
+    a_vec := tetra3d.NewVector3(a.X, a.Y, a.Z)
+    b_vec := tetra3d.NewVector3(b.X, b.Y, b.Z)
+    c_vec := tetra3d.NewVector3(c.X, c.Y, c.Z)
+    /*
+    ab := b_vec.Sub(a_vec)
+    ac := c_vec.Sub(a_vec)
+    ap := p_vec.Sub(a_vec)
+    d1 := ab.Dot(ap)
+    d2 := ac.Dot(ap)
+    if d1 < 0 || d2 < 0 {
+        return false
+    }
+    d3 := ab.Dot(ab)
+    d4 := ac.Dot(ac)
+    if d1 > d3 || d2 > d4 {
+        return false
+    }
+    vc := d3*d2 - d1*d4
+    return vc >= 0
+    */
+
+    e0 := b_vec.Sub(a_vec).Cross(p_vec.Sub(a_vec)).Dot(normal)
+    e1 := c_vec.Sub(b_vec).Cross(p_vec.Sub(b_vec)).Dot(normal)
+    e2 := a_vec.Sub(c_vec).Cross(p_vec.Sub(c_vec)).Dot(normal)
+
+    if e0 >= 0 && e1 >= 0 && e2 >= 0 {
+        return true
+    }
+
+    return false
+}
+
+func no_vertex_inside(aIndex, bIndex, cIndex int, vertIndices []int, vertices []tetra3d.VertexInfo, normal tetra3d.Vector3) bool {
+    for _, vi := range vertIndices {
+        if vi == aIndex || vi == bIndex || vi == cIndex {
+            continue
+        }
+
+        if pointInTriangle(vertices[vi], vertices[aIndex], vertices[bIndex], vertices[cIndex], normal) {
+            return false
+        }
+    }
+
+    return true
+}
+
+// implement the ear clipping algorithm for simple convex polygons. vertices must be in counter-clockwise order
+func tesselate2(vertices []tetra3d.VertexInfo, vertIndices []int) []int {
+    var out []int
+
+    normal := tetra3d.NewVector3(0, 1, 0)
+
+    for len(vertIndices) > 3 {
+        fail := true
+        for i := range vertIndices {
+            prevIndex := (i - 1 + len(vertIndices)) % len(vertIndices)
+            nextIndex := (i + 1) % len(vertIndices)
+            a := vertIndices[prevIndex]
+            b := vertIndices[i]
+            c := vertIndices[nextIndex]
+
+            if is_convex(vertices[a], vertices[b], vertices[c], normal) && no_vertex_inside(a, b, c, vertIndices, vertices, normal) {
+                log.Printf("Clipping ear: %d, %d, %d", a, b, c)
+                out = append(out, a, b, c)
+
+                before := vertIndices[:i]
+                after := vertIndices[i+1:]
+                vertIndices = append(before, after...)
+                fail = false
+                break
+            }
+        }
+
+        if fail {
+            log.Printf("Tesselation failed; remaining vertices: %v", vertIndices)
+            break
+        }
+    }
+
+    return append(out, vertIndices...)
+}
+
+func tesselate(vertices []tetra3d.VertexInfo, vertIndices []int) []int {
+    var out []int
+
+    for len(vertIndices) > 3 {
+        // remove index 1
+        out = append(out, vertIndices[0], vertIndices[1], vertIndices[2])
+        before := vertIndices[:1]
+        after := vertIndices[2:]
+        vertIndices = append(before, after...)
+    }
+
+    return append(out, vertIndices...)
+}
+
+// NewCylinderMesh creates a new cylinder Mesh and gives it a new material (suitably named "Cylinder").
+// sideCount is how many sides the cylinder should have, while radius is the radius of the cylinder in world units.
+// if createCaps is true, then the cylinder will have triangle caps.
+func NewCylinderMesh(sideCount int, radius, height float32) *tetra3d.Mesh {
+
+	if sideCount < 3 {
+		sideCount = 3
+	}
+
+	mesh := tetra3d.NewMesh("Cylinder")
+
+	verts := []tetra3d.VertexInfo{}
+
+    var topVerts []int
+
+	for i := 0; i < sideCount; i++ {
+
+		pos := tetra3d.NewVector3(radius, height, 0)
+		pos = pos.Rotate(0, 1, 0, float32(i)/float32(sideCount)*math.Pi*2)
+        topVerts = append(topVerts, len(verts))
+		verts = append(verts, tetra3d.NewVertex(pos.X, pos.Y, pos.Z, 0, 0))
+
+	}
+
+    var bottomVerts []int
+	for i := 0; i < sideCount; i++ {
+
+		pos := tetra3d.NewVector3(radius, 0, 0)
+		pos = pos.Rotate(0, 1, 0, float32(i)/float32(sideCount)*math.Pi*2)
+        bottomVerts = append(bottomVerts, len(verts))
+		verts = append(verts, tetra3d.NewVertex(pos.X, pos.Y, pos.Z, 0, 0))
+	}
+
+    /*
+	if createCaps {
+		verts = append(verts, NewVertex(0, height/2, 0, 0, 0))
+		verts = append(verts, NewVertex(0, -height/2, 0, 0, 0))
+	}
+    */
+
+	mesh.AddVertices(verts...)
+
+	indices := []int{}
+	for i := 0; i < sideCount; i++ {
+		if i < sideCount-1 {
+			indices = append(indices, i, i+sideCount, i+1)
+			indices = append(indices, i+1, i+sideCount, i+sideCount+1)
+		} else {
+			indices = append(indices, i, i+sideCount, 0)
+			indices = append(indices, 0, i+sideCount, sideCount)
+		}
+	}
+
+    // indices = append(indices, tesselate(verts, topVerts)...)
+
+    /*
+    indices = append(indices, topVerts...)
+    indices = append(indices, bottomVerts...)
+    */
+
+    /*
+	if createCaps {
+		for i := 0; i < sideCount; i++ {
+			topCenter := len(verts) - 2
+			bottomCenter := len(verts) - 1
+			if i < sideCount-1 {
+				indices = append(indices, i, i+1, topCenter)
+				indices = append(indices, i+sideCount+1, i+sideCount, bottomCenter)
+			} else {
+				indices = append(indices, i, 0, topCenter)
+				indices = append(indices, sideCount, i+sideCount, bottomCenter)
+			}
+		}
+	}
+    */
+
+	mesh.AddMeshPart(tetra3d.NewMaterial("Cylinder"), indices...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("CylinderTop"), tesselate(verts, topVerts)...)
+    // mesh.AddMeshPart(tetra3d.NewMaterial("CylinderBottom"), tesselate(verts, bottomVerts)...)
+
+	mesh.UpdateBounds()
+	mesh.AutoNormal()
+
+	return mesh
+}
+
+// create a flat plane mesh that is made up of smaller rectangles so that UV texturing looks smooth
+func makePlane(width, depth int, color tetra3d.Color) *tetra3d.Mesh {
+    mesh := tetra3d.NewMesh("Plane")
+
+    x0 := 0
+    x1 := width
+    z0 := 0
+    z1 := depth
+
+    adjustX := width / 2
+
+    type Quad struct {
+        // v0 upper left, v1 upper right, v2 lower left, v3 lower right
+        v0, v1, v2, v3 int
+    }
+
+    var quads []Quad
+
+    quadSize := 20
+
+    points := make(map[image.Point]int)
+    verts := []tetra3d.VertexInfo{}
+    // index into verts
+    // indexes := make(map[*tetra3d.VertexInfo]int)
+
+    zf := func(z float32) float32 {
+        // return z - 30
+        return -z
+        // return float32(depth)-z - 30
+    }
+
+    maxX := 0
+    maxZ := 0
+
+    x := x0
+    z := z0
+    for x = x0; x <= x1; x += quadSize {
+        for z = z0; z <= z1; z += quadSize {
+            v0 := tetra3d.NewVertex(float32(x - adjustX), 0, zf(float32(z)), float32(x) / float32(width), float32(z) / float32(depth))
+            verts = append(verts, v0)
+            index := len(verts) - 1
+            points[image.Pt(x / quadSize, z / quadSize)] = index
+
+            maxX = max(maxX, x / quadSize)
+            maxZ = max(maxZ, z / quadSize)
+        }
+
+        // edge case for bottom
+        if z != z1 + quadSize {
+            v0 := tetra3d.NewVertex(float32(x - adjustX), 0, zf(float32(depth)), float32(x) / float32(width), 1)
+            verts = append(verts, v0)
+            index := len(verts) - 1
+            points[image.Pt(x / quadSize, z / quadSize)] = index
+
+            maxX = max(maxX, x / quadSize)
+            maxZ = max(maxZ, z / quadSize)
+        }
+    }
+
+    // handle edge case when right side is not multiple of quadSize
+    if x != x1 + quadSize {
+        for z = z0; z <= z1; z += quadSize {
+            v0 := tetra3d.NewVertex(float32(width - adjustX), 0, zf(float32(z)), 1, float32(z) / float32(depth))
+            verts = append(verts, v0)
+            index := len(verts) - 1
+            points[image.Pt(x / quadSize, z / quadSize)] = index
+            maxX = max(maxX, x / quadSize)
+            maxZ = max(maxZ, z / quadSize)
+        }
+
+        if z != z1 + quadSize {
+            v0 := tetra3d.NewVertex(float32(width - adjustX), 0, zf(float32(depth)), 1, 1)
+            verts = append(verts, v0)
+            index := len(verts) - 1
+            points[image.Pt(x / quadSize, z / quadSize)] = index
+            maxX = max(maxX, x / quadSize)
+            maxZ = max(maxZ, z / quadSize)
+        }
+    }
+
+    for x := range maxX {
+        for z := range maxZ {
+            v0 := points[image.Pt(x, z)]
+            v1 := points[image.Pt(x+1, z)]
+            v2 := points[image.Pt(x+1, z+1)]
+            v3 := points[image.Pt(x, z+1)]
+
+            // quads = append(quads, Quad{v0: v0, v1: v1, v2: v2, v3: v3})
+            quads = append(quads, Quad{v0: v1, v1: v0, v2: v3, v3: v2})
+        }
+    }
+
+    // log.Printf("Made plane with %d verts and %d quads", len(verts), len(quads))
+    // log.Printf("Quads: %+v", quads)
+    // log.Printf("Vertices: %+v", verts)
+
+    mesh.AddVertices(verts...)
+
+    var indices []int
+    for _, quad := range quads {
+        indices = append(indices, tesselate(verts, []int{quad.v3, quad.v2, quad.v1, quad.v0})...)
+    }
+    mesh.AddMeshPart(tetra3d.NewMaterial("Top"), indices...)
+
+    for _, part := range mesh.MeshParts {
+        name := part.Material.Name()
+        tetra3d.NewVertexSelection().SelectMeshPartByName(mesh, name).SetColor(1, color)
+    }
+
+    // tetra3d.NewVertexSelection().SelectIndices(mesh, 8).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
+
+    mesh.SetActiveColorChannel(1)
+
+    mesh.UpdateBounds()
+    mesh.AutoNormal()
+
+    return mesh
+}
+
+func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d.Mesh {
+	mesh := tetra3d.NewMesh("3dRectangle")
+
+    x0 := -width / 2
+    x1 := width / 2
+    y0 := -height / 2
+    y1 := height / 2
+    z0 := float32(0)
+    z1 := -depth
+
+    var verts []tetra3d.VertexInfo
+
+    for _, x := range []float32{x0, x1} {
+        for _, y := range []float32{y0, y1} {
+            for _, z := range []float32{z0, z1} {
+                vertex := tetra3d.NewVertex(x, y, z, 0, 0)
+                verts = append(verts, vertex)
+            }
+        }
+    }
+
+    frontPlane := []int{0, 4, 6, 2}
+    rightPlane := []int{4, 6, 7, 5}
+    leftPlane := []int{0, 1, 3, 2}
+    backPlane := []int{1, 5, 7, 3}
+    topPlane := []int{2, 6, 7, 3}
+    // topPlane := []int{2, 7, 3}
+    bottomPlane := []int{0, 4, 5, 1}
+
+    /*
+    verts[topPlane[0]].U = 0
+    verts[topPlane[0]].V = 0
+
+    verts[topPlane[1]].U = 1
+    verts[topPlane[1]].V = 1
+
+    verts[topPlane[2]].U = 0
+    verts[topPlane[2]].V = 1
+    */
+
+    /*
+    verts[topPlane[3]].U = 0
+    verts[topPlane[3]].V = 1
+    */
+
+    mesh.AddVertices(verts...)
+
+    // tetra3d.NewVertexSelection().SelectIndices(mesh, topPlane[0]).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
+
+    _ = frontPlane
+    _ = rightPlane
+    _ = leftPlane
+    _ = backPlane
+    _ = topPlane
+    _ = bottomPlane
+
+    mesh.AddMeshPart(tetra3d.NewMaterial("Front"), tesselate(verts, frontPlane)...)
+    // mesh.AddMeshPart(tetra3d.NewMaterial("Right"), tesselate(verts, rightPlane)...)
+    // mesh.AddMeshPart(tetra3d.NewMaterial("Left"), tesselate(verts, leftPlane)...)
+    // log.Printf("Top plane: %v", tesselate(verts, topPlane))
+    mesh.AddMeshPart(tetra3d.NewMaterial("Top"), tesselate(verts, topPlane)...)
+    /*
+    mesh.AddMeshPart(tetra3d.NewMaterial("Back"), tesselate(verts, backPlane)...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Bottom"), tesselate(verts, bottomPlane)...)
+    */
+
+    for _, part := range mesh.MeshParts {
+        name := part.Material.Name()
+        tetra3d.NewVertexSelection().SelectMeshPartByName(mesh, name).SetColor(1, color)
+    }
+
+    // tetra3d.NewVertexSelection().SelectIndices(mesh, frontPlane[0], frontPlane[1]).SetColor(1, tetra3d.NewColor(0.1, 0.1, 0.1, 1))
+
+    mesh.SetActiveColorChannel(1)
+
+	mesh.UpdateBounds()
+	mesh.AutoNormal()
+
+    return mesh
+}
+
+type ParticleManager struct {
+    ParticleMesh *tetra3d.Mesh
+    Particles []*Particle
+    Scene *tetra3d.Scene
+}
+
+func NewParticleManager(scene *tetra3d.Scene) *ParticleManager {
+    particleMesh := tetra3d.NewIcosphereMesh(1)
+
+    return &ParticleManager{
+        ParticleMesh: particleMesh,
+        Scene: scene,
+    }
+}
+
+func (manager *ParticleManager) MakeFlame(fret int) {
+
+    newParticles := rand.N(4) + 6
+
+    var color tetra3d.Color
+    color = tetra3d.NewColor(248.0/255.0, 134.0/255.0, 69.0/255.0, 1)
+
+    for range newParticles {
+        model := tetra3d.NewModel("Particle", manager.ParticleMesh)
+        model.Color = color
+        model.SetWorldPosition(float32((fret - 2) * 10), 0, 0)
+
+        manager.Scene.Root.AddChildren(model)
+
+        manager.Particles = append(manager.Particles, &Particle{
+            Model: model,
+            Life: 0,
+            Movement: tetra3d.NewVector3((rand.Float32() - 0.5) / 3, 0.1 + rand.Float32() / 2, (rand.Float32() - 0.5) / 3),
+        })
+    }
+}
+
+func (manager *ParticleManager) Update() {
+    var particles []*Particle
+
+    for _, particle := range manager.Particles {
+        particle.Life += 1
+        if particle.Life < 60 {
+            particle.Model.Move(particle.Movement.X, particle.Movement.Y, particle.Movement.Z)
+
+            particle.Model.Color = particle.Model.Color.MultiplyRGBA(1, 1, 1, 0.98)
+
+            scale := particle.Model.LocalScale()
+            particle.Model.SetLocalScale(scale.X * 0.98, scale.Y * 0.98, scale.Z * 0.98)
+
+            // particle.Model.Grow(-0.98, -0.98, -0.98)
+            // gravity
+            particle.Movement.Y -= 0.01
+            particles = append(particles, particle)
+        } else {
+            manager.Scene.Root.RemoveChildren(particle.Model)
+        }
+    }
+
+    manager.Particles = particles
+}
+
+type Particle struct {
+    Model *tetra3d.Model
+    Life int
+    Movement tetra3d.Vector3
+}
+
+func loadSkin() *ebiten.Image {
+
+    base := "skins"
+    files, err := data.SkinsFS.ReadDir(base)
+    if err == nil {
+        // choose one at random, but go through all of them until one loads
+        for _, i := range rand.Perm(len(files)) {
+            path := files[i]
+            if path.IsDir() {
+                continue
+            }
+            full := filepath.Join(base, path.Name())
+
+            out := func() (*ebiten.Image, error) {
+                file, err := data.SkinsFS.Open(full)
+                if err == nil {
+                    defer file.Close()
+                    return loadJpeg(bufio.NewReader(file))
+                }
+                return nil, err
+            }
+
+            texture, err := out()
+            if err == nil {
+                return texture
+            }
+        }
+    }
+
+    // TODO: load user skins from "skins" directory on disk
+
+    /*
+    file, err := os.Open("skins/stars.jpg")
+    if err != nil {
+        log.Printf("Unable to open neck texture file: %v", err)
+    } else {
+        defer file.Close()
+        texture, err := loadJpeg(bufio.NewReader(file))
+        if err != nil {
+            log.Printf("Unable to load neck texture image: %v", err)
+        } else {
+            return texture
+        }
+    }
+    */
+
+    // fallback
+    grey := ebiten.NewImage(1, 1)
+    grey.Fill(color.NRGBA{R: 50, G: 50, B: 50, A: 255})
+    return grey
+}
+
+// return the rotation vector that looks from position to target
+func lookAtVector(position tetra3d.Vector3, target tetra3d.Vector3) tetra3d.Vector3 {
+    direction := target.Sub(position)
+    magnitude := direction.Magnitude()
+
+    f := direction.Divide(magnitude)
+    yaw := math.Atan2(float64(f.X), float64(f.Z))
+    pitch := math.Asin(float64(f.Y))
+
+    return tetra3d.NewVector3(float32(pitch), float32(yaw), 0)
+}
+
 func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
     song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
@@ -860,13 +1430,143 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
     defer song.Close()
 
+    scene := tetra3d.NewScene("Scene")
+    scene.World.LightingOn = false
+
+    makeMesh := func(color tetra3d.Color) *tetra3d.Mesh {
+        mesh := NewCylinderMesh(15, 4, 3)
+        tetra3d.NewVertexSelection().SelectMeshPartByName(mesh, "CylinderTop").SetColor(1, color)
+        mesh.SetActiveColorChannel(1)
+        return mesh
+    }
+
+    fretColor := func(fret int) tetra3d.Color {
+        switch fret {
+            case 0: return tetra3d.NewColor(1, 0, 0, 1)
+            case 1: return tetra3d.NewColor(0, 1, 0, 1)
+            case 2: return tetra3d.NewColor(1, 1, 0, 1)
+            case 3: return tetra3d.NewColor(0, 0, 1, 1)
+            case 4: return tetra3d.NewColor(1, 0.5, 0, 1)
+            default: return tetra3d.NewColor(1, 1, 1, 1)
+        }
+    }
+
+    timeToZ := func(t time.Duration) float32 {
+        return float32(t.Microseconds()) / 20000
+    }
+
+    redMesh := makeMesh(fretColor(0))
+    greenMesh := makeMesh(fretColor(1))
+    yellowMesh := makeMesh(fretColor(2))
+    blueMesh := makeMesh(fretColor(3))
+    orangeMesh := makeMesh(fretColor(4))
+
+    // neckMesh := make3dRectangle(70, 5, 300, tetra3d.NewColor(1, 1, 1, 1))
+    neckMesh := makePlane(70, 350, tetra3d.NewColor(1, 1, 1, 1))
+    neckModel := tetra3d.NewModel("Neck", neckMesh)
+    neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+    neckModel.Move(0, -2, 20)
+    scene.Root.AddChildren(neckModel)
+
+    guitarSkin := loadSkin()
+    neckMesh.MeshPartByMaterialName("Top").Material.Texture = guitarSkin
+
+    particleManager := NewParticleManager(scene)
+
+    makeButton := func(fret int, mesh *tetra3d.Mesh) *tetra3d.Model {
+        button := tetra3d.NewModel("Button", mesh)
+        button.Color = tetra3d.NewColor(1, 1, 1, 0.3)
+        xPos := (fret - 2) * 10
+        button.Move(float32(xPos), 0, 0)
+        return button
+    }
+
+    redButton := makeButton(0, redMesh)
+    greenButton := makeButton(1, greenMesh)
+    yellowButton := makeButton(2, yellowMesh)
+    blueButton := makeButton(3, blueMesh)
+    orangeButton := makeButton(4, orangeMesh)
+
+    for _, button := range []*tetra3d.Model{redButton, greenButton, yellowButton, blueButton, orangeButton} {
+        scene.Root.AddChildren(button)
+    }
+
+    lookPosition := tetra3d.NewVector3(0, 2, -30)
+
+    camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
+    camera.PerspectiveCorrectedTextureMapping = true
+    camera.SetFar(310)
+    // camera := tetra3d.NewCamera(300, 300)
+    camera.SetFieldOfView(90)
+    // camera.SetLocalPosition(0, 10, 500)
+    camera.Move(0, 30, 30)
+    camera.RenderDepth = true
+    // camera.DepthMargin = 0.10
+    // camera.RenderNormals = true
+    // camera.Rotate(3.5, 0, 0, -0.8)
+
+    camera.SetLocalRotation(tetra3d.NewMatrix4LookAt(lookPosition, camera.WorldPosition(), tetra3d.NewVector3(0, 1, 0)))
+
+    // camera.Node.Move(tetra3d.NewVector3(0, 0, -10))
+    // camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(0, 0, 0, 2))
+
+    scene.Root.AddChildren(camera)
+
+    meshes := []*tetra3d.Mesh{redMesh, greenMesh, yellowMesh, blueMesh, orangeMesh}
+
+    type NoteModel struct {
+        Model *tetra3d.Model
+        Note *Note
+        SustainModel *tetra3d.Model
+    }
+
+    var notes []NoteModel
+    for fretI := range song.Frets {
+        fret := &song.Frets[fretI]
+        for i := range fret.Notes {
+            note := &fret.Notes[i]
+            model := tetra3d.NewModel("NoteRed", meshes[fretI])
+            model.Color = tetra3d.NewColor(1, 1, 1, 1)
+
+            xPos := (fretI - 2) * 10
+
+            model.Move(float32(xPos), 0, float32(-note.Start.Milliseconds() / 50))
+            scene.Root.AddChildren(model)
+
+            noteModel := NoteModel{Model: model, Note: note}
+
+            if note.HasSustain() {
+                // sustainMesh := make3dRectangle(4, 0.1, timeToZ(note.End - note.Start), fretColor(fretI))
+                sustainMesh := makePlane(4, int(timeToZ(note.End - note.Start)), fretColor(fretI))
+                sustainModel := tetra3d.NewModel("Sustain", sustainMesh)
+                sustainModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+                sustainModel.Move(0, 2, 0)
+                noteModel.SustainModel = sustainModel
+                // sustainModel.Move(float32(xPos), 0, float32(-note.Start.Microseconds()/20000) - (float32(note.End.Microseconds() - note.Start.Microseconds()) / 40000))
+                model.AddChildren(sustainModel)
+            }
+
+            notes = append(notes, noteModel)
+        }
+    }
+
     engine.PushDrawer(func(screen *ebiten.Image) {
-        drawSong(screen, song, engine.Font)
+        engine.DrawSong3d(screen, song, scene, camera)
+        // drawSong(screen, song, engine.Font)
     })
     defer engine.PopDrawer()
 
-    song.Update(engine.Input)
+    var counter uint64
+
+    song.Update(engine.Input, particleManager)
     for !song.Finished() {
+        counter += 1
+
+        /*
+        if counter % 90 == 0 {
+            particleManager.MakeFlame(0)
+        }
+        */
 
         keys := inpututil.AppendJustPressedKeys(nil)
         for _, key := range keys {
@@ -877,7 +1577,107 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             }
         }
 
-        song.Update(engine.Input)
+        // these keys are mainly for debugging
+        moved := false
+        var move tetra3d.Vector3
+
+        keys = inpututil.AppendPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyQ:
+                    move = tetra3d.NewVector3(-1, 0, 0)
+                    moved = true
+                case ebiten.KeyW:
+                    move = tetra3d.NewVector3(1, 0, 0)
+                    moved = true
+                case ebiten.KeyA:
+                    move = tetra3d.NewVector3(0, -1, 0)
+                    moved = true
+                case ebiten.KeyS:
+                    move = tetra3d.NewVector3(0, 1, 0)
+                    moved = true
+                case ebiten.KeyZ:
+                    move = tetra3d.NewVector3(0, 0, -1)
+                    moved = true
+                case ebiten.KeyX:
+                    move = tetra3d.NewVector3(0, 0, 1)
+                    moved = true
+            }
+        }
+
+        if moved {
+            camera.MoveVec(move)
+            camera.SetLocalRotation(tetra3d.NewMatrix4LookAt(lookPosition, camera.WorldPosition(), tetra3d.NewVector3(0, 1, 0)))
+        }
+
+        delta := time.Since(song.StartTime)
+
+        song.Update(engine.Input, particleManager)
+
+        var notesOut []NoteModel
+
+        // log.Printf("Notes: %v", len(notes))
+        for _, noteModel := range notes {
+            if (noteModel.Note.State == NoteStateHit && !noteModel.Note.HasSustain()) || noteModel.Note.End - delta < -time.Second * 1 {
+                scene.Root.RemoveChildren(noteModel.Model)
+            } else {
+
+                if noteModel.Note.State == NoteStateHit && noteModel.Note.HasSustain() {
+                    noteModel.Model.Color.A = 0
+
+                    z := min(1, max(0, float32(noteModel.Note.End - delta) / float32(noteModel.Note.End - noteModel.Note.Start)))
+
+                    noteModel.SustainModel.SetLocalScale(1, 1, z)
+                    position := noteModel.Model.WorldPosition()
+                    noteModel.Model.SetWorldPosition(position.X, position.Y, 0)
+                } else {
+                    elapsed := noteModel.Note.Start - delta
+
+                    position := noteModel.Model.WorldPosition()
+                    x := position.X
+                    y := position.Y
+
+                    alpha := float32(1.0)
+                    if elapsed > 0 {
+                        alpha = min(1, float32(time.Second * 2) / float32(elapsed))
+                    }
+
+                    noteModel.Model.Color.A = alpha
+
+                    noteModel.Model.SetWorldPosition(x, y, timeToZ(-elapsed))
+                }
+
+                notesOut = append(notesOut, noteModel)
+            }
+
+            // noteModel.Move(0, 0, 0.2)
+        }
+
+        notes = notesOut
+
+        // model.SetLocalRotation(model.LocalRotation().Rotated(0.5, 0.2, 0.5, 0.02))
+
+        particleManager.Update()
+
+        for i := range song.Frets {
+            fret := &song.Frets[i]
+            var button *tetra3d.Model
+            switch i {
+                case 0: button = redButton
+                case 1: button = greenButton
+                case 2: button = yellowButton
+                case 3: button = blueButton
+                case 4: button = orangeButton
+            }
+            if !fret.Press.IsZero() {
+                button.Color.A = min(1, button.Color.A + 0.06)
+                button.SetLocalScale(1, 1, 1)
+            } else {
+                button.Color.A = max(0.3, button.Color.A - 0.01)
+                button.SetLocalScale(1, 0.3, 1)
+            }
+        }
+
         if yield() != nil {
             break
         }
@@ -1064,6 +1864,61 @@ func darkenColor(c color.NRGBA, amount float64) color.Color {
     }
 
     return c
+}
+
+func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3d.Scene, camera *tetra3d.Camera) {
+
+    camera.Clear()
+    camera.RenderScene(scene)
+    screen.DrawImage(camera.ColorTexture(), nil)
+    // camera.DrawDebugWireframe(screen, scene.Root, tetra3d.NewColor(0, 1, 0, 1))
+    // camera.DrawDebugDrawOrder(screen, scene.Root, 1, tetra3d.NewColor(1, 0, 0, 1))
+    // screen.DrawImage(camera.DepthTexture(), nil)
+
+    /*
+    for _, flame := range flameManager.Flames {
+        useImage := flame.Image()
+        x := 695 + (flame.Fret - 2) * 120 - useImage.Bounds().Dx()/2
+        y := ScreenHeight - 285 - useImage.Bounds().Dy()
+        var options ebiten.DrawImageOptions
+        options.GeoM.Translate(float64(x), float64(y))
+        screen.DrawImage(useImage, &options)
+    }
+    */
+
+    // camera.DrawDebugText(screen, "just a test", 0, 10, 2, tetra3d.NewColor(1, 1, 1, 1))
+
+    delta := min(song.SongLength, time.Since(song.StartTime))
+
+    face := &text.GoTextFace{
+        Source: engine.Font,
+        Size: 24,
+    }
+
+    var textOptions text.DrawOptions
+    textOptions.GeoM.Translate(850, 100)
+    text.Draw(screen, fmt.Sprintf("Time: %v / %v", delta.Truncate(time.Second), song.SongLength.Truncate(time.Second)), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Notes Hit: %d", song.NotesHit), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Notes Missed: %d", song.NotesMissed), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    percent := 0
+    if song.TotalNotes() > 0 {
+        percent = song.NotesHit * 100 / song.TotalNotes()
+    }
+    text.Draw(screen, fmt.Sprintf("Notes: %d%%", percent), face, &textOptions)
+    textOptions.GeoM.Translate(0, 30)
+    text.Draw(screen, fmt.Sprintf("Score: %d", song.Score), face, &textOptions)
+
+    textOptions.GeoM.Reset()
+    textOptions.GeoM.Translate(10, 10)
+    text.Draw(screen, fmt.Sprintf("FPS: %0.2f", ebiten.ActualFPS()), face, &textOptions)
+
+    textOptions.GeoM.Translate(0, 20)
+    position := camera.WorldPosition()
+    text.Draw(screen, fmt.Sprintf("Camera: X: %v Y: %v Z: %v", position.X, position.Y, position.Z), face, &textOptions)
+
 }
 
 // vertical layout
