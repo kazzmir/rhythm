@@ -3,6 +3,7 @@ package main
 import (
     "log"
     "time"
+    "image"
     "math"
     "math/rand/v2"
     "os"
@@ -1089,6 +1090,125 @@ func NewCylinderMesh(sideCount int, radius, height float32) *tetra3d.Mesh {
 	return mesh
 }
 
+// create a flat plane mesh that is made up of smaller rectangles so that UV texturing looks smooth
+func makePlane(width, depth int, color tetra3d.Color) *tetra3d.Mesh {
+    mesh := tetra3d.NewMesh("Plane")
+
+    x0 := 0
+    x1 := width
+    z0 := 0
+    z1 := depth
+
+    adjustX := width / 2
+
+    type Quad struct {
+        // v0 upper left, v1 upper right, v2 lower left, v3 lower right
+        v0, v1, v2, v3 int
+    }
+
+    var quads []Quad
+
+    quadSize := 20
+
+    points := make(map[image.Point]int)
+    verts := []tetra3d.VertexInfo{}
+    // index into verts
+    // indexes := make(map[*tetra3d.VertexInfo]int)
+
+    zf := func(z float32) float32 {
+        // return z - 30
+        return -z
+        // return float32(depth)-z - 30
+    }
+
+    maxX := 0
+    maxZ := 0
+
+    x := x0
+    z := z0
+    for x = x0; x <= x1; x += quadSize {
+        for z = z0; z <= z1; z += quadSize {
+            v0 := tetra3d.NewVertex(float32(x - adjustX), 0, zf(float32(z)), float32(x) / float32(width), float32(z) / float32(depth))
+            verts = append(verts, v0)
+            index := len(verts) - 1
+            points[image.Pt(x / quadSize, z / quadSize)] = index
+
+            maxX = max(maxX, x / quadSize)
+            maxZ = max(maxZ, z / quadSize)
+        }
+
+        // edge case for bottom
+        if z != z1 + quadSize {
+            v0 := tetra3d.NewVertex(float32(x - adjustX), 0, zf(float32(depth)), float32(x) / float32(width), 1)
+            verts = append(verts, v0)
+            index := len(verts) - 1
+            points[image.Pt(x / quadSize, z / quadSize)] = index
+
+            maxX = max(maxX, x / quadSize)
+            maxZ = max(maxZ, z / quadSize)
+        }
+    }
+
+    // handle edge case when right side is not multiple of quadSize
+    if x != x1 + quadSize {
+        for z = z0; z <= z1; z += quadSize {
+            v0 := tetra3d.NewVertex(float32(width - adjustX), 0, zf(float32(z)), 1, float32(z) / float32(depth))
+            verts = append(verts, v0)
+            index := len(verts) - 1
+            points[image.Pt(x / quadSize, z / quadSize)] = index
+            maxX = max(maxX, x / quadSize)
+            maxZ = max(maxZ, z / quadSize)
+        }
+
+        if z != z1 + quadSize {
+            v0 := tetra3d.NewVertex(float32(width - adjustX), 0, zf(float32(depth)), 1, 1)
+            verts = append(verts, v0)
+            index := len(verts) - 1
+            points[image.Pt(x / quadSize, z / quadSize)] = index
+            maxX = max(maxX, x / quadSize)
+            maxZ = max(maxZ, z / quadSize)
+        }
+    }
+
+    for x := range maxX {
+        for z := range maxZ {
+            v0 := points[image.Pt(x, z)]
+            v1 := points[image.Pt(x+1, z)]
+            v2 := points[image.Pt(x+1, z+1)]
+            v3 := points[image.Pt(x, z+1)]
+
+            // quads = append(quads, Quad{v0: v0, v1: v1, v2: v2, v3: v3})
+            quads = append(quads, Quad{v0: v1, v1: v0, v2: v3, v3: v2})
+        }
+    }
+
+    // log.Printf("Made plane with %d verts and %d quads", len(verts), len(quads))
+    // log.Printf("Quads: %+v", quads)
+    // log.Printf("Vertices: %+v", verts)
+
+    mesh.AddVertices(verts...)
+
+    var indices []int
+    for _, quad := range quads {
+        indices = append(indices, tesselate(verts, []int{quad.v3, quad.v2, quad.v1, quad.v0})...)
+    }
+    mesh.AddMeshPart(tetra3d.NewMaterial("Top"), indices...)
+
+    for _, part := range mesh.MeshParts {
+        name := part.Material.Name()
+        tetra3d.NewVertexSelection().SelectMeshPartByName(mesh, name).SetColor(1, color)
+    }
+
+    // tetra3d.NewVertexSelection().SelectIndices(mesh, 8).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
+
+    mesh.SetActiveColorChannel(1)
+
+    mesh.UpdateBounds()
+    mesh.AutoNormal()
+
+    return mesh
+}
+
 func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d.Mesh {
 	mesh := tetra3d.NewMesh("3dRectangle")
 
@@ -1115,21 +1235,28 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
     leftPlane := []int{0, 1, 3, 2}
     backPlane := []int{1, 5, 7, 3}
     topPlane := []int{2, 6, 7, 3}
+    // topPlane := []int{2, 7, 3}
     bottomPlane := []int{0, 4, 5, 1}
 
+    /*
     verts[topPlane[0]].U = 0
     verts[topPlane[0]].V = 0
 
     verts[topPlane[1]].U = 1
-    verts[topPlane[1]].V = 0
+    verts[topPlane[1]].V = 1
 
-    verts[topPlane[2]].U = 1
+    verts[topPlane[2]].U = 0
     verts[topPlane[2]].V = 1
+    */
 
+    /*
     verts[topPlane[3]].U = 0
     verts[topPlane[3]].V = 1
+    */
 
     mesh.AddVertices(verts...)
+
+    // tetra3d.NewVertexSelection().SelectIndices(mesh, topPlane[0]).SetColor(1, tetra3d.NewColor(1, 0, 0, 1))
 
     _ = frontPlane
     _ = rightPlane
@@ -1138,9 +1265,10 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
     _ = topPlane
     _ = bottomPlane
 
-    // mesh.AddMeshPart(tetra3d.NewMaterial("Front"), tesselate(verts, frontPlane)...)
+    mesh.AddMeshPart(tetra3d.NewMaterial("Front"), tesselate(verts, frontPlane)...)
     // mesh.AddMeshPart(tetra3d.NewMaterial("Right"), tesselate(verts, rightPlane)...)
     // mesh.AddMeshPart(tetra3d.NewMaterial("Left"), tesselate(verts, leftPlane)...)
+    // log.Printf("Top plane: %v", tesselate(verts, topPlane))
     mesh.AddMeshPart(tetra3d.NewMaterial("Top"), tesselate(verts, topPlane)...)
     /*
     mesh.AddMeshPart(tetra3d.NewMaterial("Back"), tesselate(verts, backPlane)...)
@@ -1366,6 +1494,18 @@ func loadSkin() *ebiten.Image {
     return grey
 }
 
+// return the rotation vector that looks from position to target
+func lookAtVector(position tetra3d.Vector3, target tetra3d.Vector3) tetra3d.Vector3 {
+    direction := target.Sub(position)
+    magnitude := direction.Magnitude()
+
+    f := direction.Divide(magnitude)
+    yaw := math.Atan2(float64(f.X), float64(f.Z))
+    pitch := math.Asin(float64(f.Y))
+
+    return tetra3d.NewVector3(float32(pitch), float32(yaw), 0)
+}
+
 func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
     song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
@@ -1405,10 +1545,12 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     blueMesh := makeMesh(fretColor(3))
     orangeMesh := makeMesh(fretColor(4))
 
-    neckMesh := make3dRectangle(70, 5, 350, tetra3d.NewColor(1, 1, 1, 1))
+    // neckMesh := make3dRectangle(70, 5, 300, tetra3d.NewColor(1, 1, 1, 1))
+    neckMesh := makePlane(70, 350, tetra3d.NewColor(1, 1, 1, 1))
     neckModel := tetra3d.NewModel("Neck", neckMesh)
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
-    neckModel.Move(0, -5, 40)
+    neckModel.Move(0, -2, 20)
+    scene.Root.AddChildren(neckModel)
 
     guitarSkin := loadSkin()
     neckMesh.MeshPartByMaterialName("Top").Material.Texture = guitarSkin
@@ -1416,12 +1558,13 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     // flameManager := NewFlameManager()
     particleManager := NewParticleManager(scene)
 
+    /*
     stripMesh := make3dRectangle(70, 1, 1, tetra3d.NewColor(1, 1, 1, 1))
     stripModel := tetra3d.NewModel("Strip", stripMesh)
     stripModel.Color = tetra3d.NewColor(1, 1, 1, 1)
     stripModel.Move(0, 5/2 + 0.1, -20)
     neckModel.AddChildren(stripModel)
-    scene.Root.AddChildren(neckModel)
+    */
     // scene.Root.AddChildren(stripModel)
 
     /*
@@ -1482,13 +1625,29 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
         scene.Root.AddChildren(button)
     }
 
+    lookPosition := tetra3d.NewVector3(0, 2, -30)
+
     camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
+    camera.PerspectiveCorrectedTextureMapping = true
     camera.SetFar(310)
     // camera := tetra3d.NewCamera(300, 300)
     camera.SetFieldOfView(90)
     // camera.SetLocalPosition(0, 10, 500)
-    camera.Move(0, 30, 40)
-    camera.Rotate(3.5, 0, 0, -0.3)
+    camera.Move(0, 30, 30)
+    camera.RenderDepth = true
+    // camera.DepthMargin = 0.10
+    // camera.RenderNormals = true
+    // camera.Rotate(3.5, 0, 0, -0.8)
+
+    /*
+    rotationVector := lookAtVector(camera.WorldPosition(), tetra3d.NewVector3(0, 0, 0))
+    camera.Rotate(rotationVector.X, rotationVector.Y, rotationVector.Z, 1)
+    */
+
+    camera.SetLocalRotation(tetra3d.NewMatrix4LookAt(lookPosition, camera.WorldPosition(), tetra3d.NewVector3(0, 1, 0)))
+
+    log.Printf("Forward vector: %v", camera.WorldRotation().Forward())
+
     // camera.Node.Move(tetra3d.NewVector3(0, 0, -10))
     // camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(0, 0, 0, 2))
 
@@ -1521,9 +1680,11 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             noteModel := NoteModel{Model: model, Note: note}
 
             if note.HasSustain() {
-                sustainMesh := make3dRectangle(4, 1, timeToZ(note.End - note.Start), fretColor(fretI))
+                // sustainMesh := make3dRectangle(4, 0.1, timeToZ(note.End - note.Start), fretColor(fretI))
+                sustainMesh := makePlane(4, int(timeToZ(note.End - note.Start)), fretColor(fretI))
                 sustainModel := tetra3d.NewModel("Sustain", sustainMesh)
                 sustainModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+                sustainModel.Move(0, 2, 0)
                 noteModel.SustainModel = sustainModel
                 // sustainModel.Move(float32(xPos), 0, float32(-note.Start.Microseconds()/20000) - (float32(note.End.Microseconds() - note.Start.Microseconds()) / 40000))
                 // scene.Root.AddChildren(sustainModel)
@@ -1533,6 +1694,15 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             notes = append(notes, noteModel)
         }
     }
+
+    /*
+    // xMesh := make3dRectangle(4, 1, 150, tetra3d.NewColor(1, 1, 0, 1))
+    xMesh := makePlane(4, 250, tetra3d.NewColor(1, 1, 0, 1))
+    xModel := tetra3d.NewModel("XMarker", xMesh)
+    xModel.Color = tetra3d.NewColor(1, 1, 1, 1)
+    xModel.Move(10, 6, -0)
+    scene.Root.AddChildren(xModel)
+    */
 
     // rotation := float32(0)
 
@@ -1568,6 +1738,39 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
                     yield()
                     return nil
             }
+        }
+
+        // these keys are mainly for debugging
+        moved := false
+        var move tetra3d.Vector3
+
+        keys = inpututil.AppendPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyQ:
+                    move = tetra3d.NewVector3(-1, 0, 0)
+                    moved = true
+                case ebiten.KeyW:
+                    move = tetra3d.NewVector3(1, 0, 0)
+                    moved = true
+                case ebiten.KeyA:
+                    move = tetra3d.NewVector3(0, -1, 0)
+                    moved = true
+                case ebiten.KeyS:
+                    move = tetra3d.NewVector3(0, 1, 0)
+                    moved = true
+                case ebiten.KeyZ:
+                    move = tetra3d.NewVector3(0, 0, -1)
+                    moved = true
+                case ebiten.KeyX:
+                    move = tetra3d.NewVector3(0, 0, 1)
+                    moved = true
+            }
+        }
+
+        if moved {
+            camera.MoveVec(move)
+            camera.SetLocalRotation(tetra3d.NewMatrix4LookAt(lookPosition, camera.WorldPosition(), tetra3d.NewVector3(0, 1, 0)))
         }
 
         /*
@@ -1838,6 +2041,9 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     camera.Clear()
     camera.RenderScene(scene)
     screen.DrawImage(camera.ColorTexture(), nil)
+    // camera.DrawDebugWireframe(screen, scene.Root, tetra3d.NewColor(0, 1, 0, 1))
+    // camera.DrawDebugDrawOrder(screen, scene.Root, 1, tetra3d.NewColor(1, 0, 0, 1))
+    // screen.DrawImage(camera.DepthTexture(), nil)
 
     /*
     for _, flame := range flameManager.Flames {
@@ -1878,6 +2084,10 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     textOptions.GeoM.Reset()
     textOptions.GeoM.Translate(10, 10)
     text.Draw(screen, fmt.Sprintf("FPS: %0.2f", ebiten.ActualFPS()), face, &textOptions)
+
+    textOptions.GeoM.Translate(0, 20)
+    position := camera.WorldPosition()
+    text.Draw(screen, fmt.Sprintf("Camera: X: %v Y: %v Z: %v", position.X, position.Y, position.Z), face, &textOptions)
 
 }
 
