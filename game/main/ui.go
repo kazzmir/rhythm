@@ -496,6 +496,11 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     rootContainer.AddChild(makeFullscreenButton())
 
+    rootContainer.AddChild(makeButton(fmt.Sprintf("VSync Toggle: %v", ebiten.IsVsyncEnabled()), tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
+        ebiten.SetVsyncEnabled(!ebiten.IsVsyncEnabled())
+        args.Button.SetText(fmt.Sprintf("VSync Toggle: %v", ebiten.IsVsyncEnabled()))
+    }))
+
     rootContainer.AddChild(makeButton("Back", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
         quit = true
     }))
