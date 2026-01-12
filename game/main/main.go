@@ -1290,81 +1290,6 @@ func make3dRectangle(width, height, depth float32, color tetra3d.Color) *tetra3d
     return mesh
 }
 
-type FlameManager struct {
-    Images []*ebiten.Image
-    Flames []*Flame
-}
-
-func NewFlameManager() *FlameManager {
-    files, err := data.FlameFS.ReadDir("flame")
-    if err != nil {
-        log.Printf("Unable to read flame FS: %v", err)
-        return nil
-    }
-
-    var images []*ebiten.Image
-
-    for _, path := range files {
-        if path.IsDir() {
-            continue
-        }
-        img, err := func() (*ebiten.Image, error) {
-            file, err := data.FlameFS.Open(filepath.Join("flame", path.Name()))
-            if err != nil {
-                return nil, err
-            }
-            defer file.Close()
-            return loadPng(bufio.NewReader(file))
-        }()
-
-        if err != nil {
-            log.Printf("Unable to load flame image '%v': %v", path.Name(), err)
-        }
-
-        images = append(images, img)
-    }
-
-    return &FlameManager{
-        Images: images,
-    }
-}
-
-func (manager *FlameManager) MakeFlame(fret int) {
-    manager.Flames = append(manager.Flames, &Flame{
-        Images: manager.Images,
-        Life: 0,
-        Fret: fret,
-    })
-}
-
-func (manager *FlameManager) Update() {
-    var flames []*Flame
-
-    for _, flame := range manager.Flames {
-        flame.Life += 1
-        if flame.Image() != nil {
-            flames = append(flames, flame)
-        }
-    }
-
-    manager.Flames = flames
-}
-
-type Flame struct {
-    Images []*ebiten.Image
-    Life int
-    Fret int
-}
-
-func (flame *Flame) Image() *ebiten.Image {
-    index := flame.Life / 2
-    if index >= len(flame.Images) {
-        return nil
-    }
-
-    return flame.Images[index]
-}
-
 type ParticleManager struct {
     ParticleMesh *tetra3d.Mesh
     Particles []*Particle
@@ -1385,16 +1310,6 @@ func (manager *ParticleManager) MakeFlame(fret int) {
     newParticles := rand.N(4) + 6
 
     var color tetra3d.Color
-    /*
-    switch fret {
-        case 0: color = tetra3d.NewColor(1, 0, 0, 1)
-        case 1: color = tetra3d.NewColor(0, 1, 0, 1)
-        case 2: color = tetra3d.NewColor(1, 1, 0, 1)
-        case 3: color = tetra3d.NewColor(0, 0, 1, 1)
-        case 4: color = tetra3d.NewColor(1, 0.5, 0, 1)
-        default: color = tetra3d.NewColor(1, 1, 1, 1)
-    }
-    */
     color = tetra3d.NewColor(248.0/255.0, 134.0/255.0, 69.0/255.0, 1)
 
     for range newParticles {
@@ -1407,7 +1322,6 @@ func (manager *ParticleManager) MakeFlame(fret int) {
         manager.Particles = append(manager.Particles, &Particle{
             Model: model,
             Life: 0,
-            // Movement: tetra3d.NewVector3((rand.Float32() - 0.5), 0.1 + rand.Float32(), (rand.Float32() - 0.5)),
             Movement: tetra3d.NewVector3((rand.Float32() - 0.5) / 3, 0.1 + rand.Float32() / 2, (rand.Float32() - 0.5) / 3),
         })
     }
@@ -1472,6 +1386,8 @@ func loadSkin() *ebiten.Image {
             }
         }
     }
+
+    // TODO: load user skins from "skins" directory on disk
 
     /*
     file, err := os.Open("skins/stars.jpg")
@@ -1555,50 +1471,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     guitarSkin := loadSkin()
     neckMesh.MeshPartByMaterialName("Top").Material.Texture = guitarSkin
 
-    // flameManager := NewFlameManager()
     particleManager := NewParticleManager(scene)
-
-    /*
-    stripMesh := make3dRectangle(70, 1, 1, tetra3d.NewColor(1, 1, 1, 1))
-    stripModel := tetra3d.NewModel("Strip", stripMesh)
-    stripModel.Color = tetra3d.NewColor(1, 1, 1, 1)
-    stripModel.Move(0, 5/2 + 0.1, -20)
-    neckModel.AddChildren(stripModel)
-    */
-    // scene.Root.AddChildren(stripModel)
-
-    /*
-    playMesh := make3dRectangle(8, 1, 1, tetra3d.NewColor(1, 0, 0, 1))
-    playModelLow := tetra3d.NewModel("PlayButton", playMesh)
-    playModelLow.Color = tetra3d.NewColor(1, 1, 1, 1)
-    playModelLow.Move(0, 0, -float32(NoteThresholdLow.Microseconds())/20000)
-    scene.Root.AddChildren(playModelLow)
-
-    log.Printf("Low: %v", playModelLow.WorldPosition().Z)
-
-    play2Mesh := make3dRectangle(8, 1, 1, tetra3d.NewColor(1, 1, 0, 1))
-    playModelHigh := tetra3d.NewModel("PlayButton", play2Mesh)
-    playModelHigh.Color = tetra3d.NewColor(1, 1, 1, 1)
-    playModelHigh.Move(0, 0, -float32(NoteThresholdHigh.Microseconds())/20000)
-    tetra3d.NewVertexSelection().SelectMeshPartByName(play2Mesh, "Top").SetColor(1, tetra3d.NewColor(1, 1, 1, 1))
-    scene.Root.AddChildren(playModelHigh)
-
-    log.Printf("High: %v", playModelHigh.WorldPosition().Z)
-
-    zeroMesh := make3dRectangle(3, 1, 1, tetra3d.NewColor(1, 1, 1, 1))
-    zeroModel := tetra3d.NewModel("ZeroMarker", zeroMesh)
-    zeroModel.Color = tetra3d.NewColor(1, 1, 1, 1)
-    zeroModel.Move(0, 0, 0)
-    scene.Root.AddChildren(zeroModel)
-    */
-
-    /*
-    cubeX := tetra3d.NewCubeMesh()
-    cubeModel := tetra3d.NewModel("Cube", cubeX)
-    cubeModel.Color = tetra3d.NewColor(0, 1, 0, 1)
-    cubeModel.Move(0, 0, 0)
-    scene.Root.AddChildren(cubeModel)
-    */
 
     makeButton := func(fret int, mesh *tetra3d.Mesh) *tetra3d.Model {
         button := tetra3d.NewModel("Button", mesh)
@@ -1613,13 +1486,6 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     yellowButton := makeButton(2, yellowMesh)
     blueButton := makeButton(3, blueMesh)
     orangeButton := makeButton(4, orangeMesh)
-
-    /*
-    redPressMesh := makeMesh(tetra3d.NewColor(1, 0, 0, 1))
-    redPress := tetra3d.NewModel("Debug", redPressMesh)
-    redPress.Color = tetra3d.NewColor(1, 1, 1, 0.5)
-    redPress.Move(-20, -1, 0)
-    */
 
     for _, button := range []*tetra3d.Model{redButton, greenButton, yellowButton, blueButton, orangeButton} {
         scene.Root.AddChildren(button)
@@ -1639,22 +1505,12 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     // camera.RenderNormals = true
     // camera.Rotate(3.5, 0, 0, -0.8)
 
-    /*
-    rotationVector := lookAtVector(camera.WorldPosition(), tetra3d.NewVector3(0, 0, 0))
-    camera.Rotate(rotationVector.X, rotationVector.Y, rotationVector.Z, 1)
-    */
-
     camera.SetLocalRotation(tetra3d.NewMatrix4LookAt(lookPosition, camera.WorldPosition(), tetra3d.NewVector3(0, 1, 0)))
-
-    log.Printf("Forward vector: %v", camera.WorldRotation().Forward())
 
     // camera.Node.Move(tetra3d.NewVector3(0, 0, -10))
     // camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(0, 0, 0, 2))
 
     scene.Root.AddChildren(camera)
-
-    // pressedColor := tetra3d.NewColor(1, 1, 1, 1)
-    // unpressedColor := tetra3d.NewColor(1, 1, 1, 0.5)
 
     meshes := []*tetra3d.Mesh{redMesh, greenMesh, yellowMesh, blueMesh, orangeMesh}
 
@@ -1687,7 +1543,6 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
                 sustainModel.Move(0, 2, 0)
                 noteModel.SustainModel = sustainModel
                 // sustainModel.Move(float32(xPos), 0, float32(-note.Start.Microseconds()/20000) - (float32(note.End.Microseconds() - note.Start.Microseconds()) / 40000))
-                // scene.Root.AddChildren(sustainModel)
                 model.AddChildren(sustainModel)
             }
 
@@ -1695,24 +1550,11 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
         }
     }
 
-    /*
-    // xMesh := make3dRectangle(4, 1, 150, tetra3d.NewColor(1, 1, 0, 1))
-    xMesh := makePlane(4, 250, tetra3d.NewColor(1, 1, 0, 1))
-    xModel := tetra3d.NewModel("XMarker", xMesh)
-    xModel.Color = tetra3d.NewColor(1, 1, 1, 1)
-    xModel.Move(10, 6, -0)
-    scene.Root.AddChildren(xModel)
-    */
-
-    // rotation := float32(0)
-
     engine.PushDrawer(func(screen *ebiten.Image) {
         engine.DrawSong3d(screen, song, scene, camera)
         // drawSong(screen, song, engine.Font)
     })
     defer engine.PopDrawer()
-
-    // model.SetLocalRotation(model.LocalRotation().Rotated(1, 0, 1, 1.05))
 
     var counter uint64
 
@@ -1720,11 +1562,6 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     for !song.Finished() {
         counter += 1
 
-        /*
-        if (counter/5) % 30 < 5 {
-            flameManager.MakeFlame(int((counter/5) % 30))
-        }
-        */
         /*
         if counter % 90 == 0 {
             particleManager.MakeFlame(0)
@@ -1772,13 +1609,6 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
             camera.MoveVec(move)
             camera.SetLocalRotation(tetra3d.NewMatrix4LookAt(lookPosition, camera.WorldPosition(), tetra3d.NewVector3(0, 1, 0)))
         }
-
-        /*
-        rotation += 0.01
-        camera.SetLocalRotation(tetra3d.NewMatrix4Rotate(1, 0, 1, rotation))
-        */
-
-        // model.Move(0, 0, 0.1)
 
         delta := time.Since(song.StartTime)
 
