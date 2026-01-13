@@ -463,93 +463,87 @@ func (background *Background) Draw(screen *ebiten.Image) {
     screen.DrawTriangles(vertices, []uint16{0, 1, 2, 2, 3, 0}, background.Source, nil)
 }
 
-func waitForInput(yield coroutine.YieldFunc, input int, gamepadId ebiten.GamepadID, face text.Face, drawManager DrawManager) string {
-    // keyboard
-    if input == 0 {
-        return "?"
-    } else {
-
-        pressedButton := ebiten.GamepadButton(-1)
-        var timePressed time.Time
-
-        previousDrawer := drawManager.LastDrawer()
-
-        totalPressTime := 1000 * time.Millisecond
-
-        hueStart := 18
-        hueEnd := 119
-
-        drawManager.PushDrawer(func(screen *ebiten.Image) {
-            previousDrawer(screen)
-
-            x := float32(400)
-            y := float32(300)
-            width := float32(600)
-            height := float32(300)
-
-            vector.FillRect(screen, x, y, width, height, color.NRGBA{R: 0, G: 0, B: 0, A: 200}, true)
-            vector.StrokeRect(screen, x, y, width, height, 1, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, true)
-            var textOptions text.DrawOptions
-            textOptions.GeoM.Translate(float64(x + 10), float64(y + 2))
-            text.Draw(screen, "Hold a button on the gamepad for 1 second", face, &textOptions)
-
-            if pressedButton != -1 {
-                textOptions.GeoM.Translate(0, 30)
-                text.Draw(screen, fmt.Sprintf("Button: %v", pressedButton), face, &textOptions)
-
-                timeLeft := totalPressTime - time.Since(timePressed)
-
-                ax, ay := textOptions.GeoM.Apply(0, 30)
-
-                hue := hueStart + int(timeLeft.Milliseconds() * int64(hueEnd - hueStart) / totalPressTime.Milliseconds())
-
-                c, err := colorconv.HSVToColor(float64(hue), 1.0, 1.0)
-                if err == nil {
-                    vector.FillRect(screen, float32(ax), float32(ay), float32(200 * timeLeft / totalPressTime), float32(10), c, true)
-                }
-            }
-
-        })
-        defer drawManager.PopDrawer()
-
-        var buttons []ebiten.GamepadButton
-
-        quit := false
-        for !quit {
-            if yield() != nil {
-                return ""
-            }
-
-            if ebiten.IsKeyPressed(ebiten.KeyEscape) || ebiten.IsKeyPressed(ebiten.KeyCapsLock) {
-                quit = true
-                yield()
-            }
-
-            if ebiten.IsGamepadButtonPressed(gamepadId, pressedButton) {
-                if time.Since(timePressed) > totalPressTime {
-                    quit = true
-                }
-            } else {
-                pressedButton = ebiten.GamepadButton(-1)
-                timePressed = time.Time{}
-            }
-
-            buttons = inpututil.AppendJustPressedGamepadButtons(gamepadId, buttons[:0])
-            if len(buttons) > 0 {
-                pressedButton = buttons[0]
-                timePressed = time.Now()
-            }
-        }
-
-        if pressedButton != -1 {
-            return fmt.Sprintf("Button %d", pressedButton)
-        }
-
-        return ""
-    }
+func waitForKeyboardInput(yield coroutine.YieldFunc, face text.Face, drawManager DrawManager, inputProfile *InputProfileKeyboard) ebiten.Key {
+    return ebiten.KeyUp
 }
 
-func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawManager) *widget.Container {
+func waitForGamepadInput(yield coroutine.YieldFunc, gamepadId ebiten.GamepadID, face text.Face, drawManager DrawManager) ebiten.GamepadButton {
+    pressedButton := ebiten.GamepadButton(-1)
+    var timePressed time.Time
+
+    previousDrawer := drawManager.LastDrawer()
+
+    totalPressTime := 1000 * time.Millisecond
+
+    hueStart := 18
+    hueEnd := 119
+
+    drawManager.PushDrawer(func(screen *ebiten.Image) {
+        previousDrawer(screen)
+
+        x := float32(400)
+        y := float32(300)
+        width := float32(600)
+        height := float32(300)
+
+        vector.FillRect(screen, x, y, width, height, color.NRGBA{R: 0, G: 0, B: 0, A: 200}, true)
+        vector.StrokeRect(screen, x, y, width, height, 1, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, true)
+        var textOptions text.DrawOptions
+        textOptions.GeoM.Translate(float64(x + 10), float64(y + 2))
+        text.Draw(screen, "Hold a button on the gamepad for 1 second", face, &textOptions)
+
+        if pressedButton != -1 {
+            textOptions.GeoM.Translate(0, 30)
+            text.Draw(screen, fmt.Sprintf("Button: %v", pressedButton), face, &textOptions)
+
+            timeLeft := totalPressTime - time.Since(timePressed)
+
+            ax, ay := textOptions.GeoM.Apply(0, 30)
+
+            hue := hueStart + int(timeLeft.Milliseconds() * int64(hueEnd - hueStart) / totalPressTime.Milliseconds())
+
+            c, err := colorconv.HSVToColor(float64(hue), 1.0, 1.0)
+            if err == nil {
+                vector.FillRect(screen, float32(ax), float32(ay), float32(200 * timeLeft / totalPressTime), float32(10), c, true)
+            }
+        }
+
+    })
+    defer drawManager.PopDrawer()
+
+    var buttons []ebiten.GamepadButton
+
+    quit := false
+    for !quit {
+        if yield() != nil {
+            return pressedButton
+        }
+
+        if ebiten.IsKeyPressed(ebiten.KeyEscape) || ebiten.IsKeyPressed(ebiten.KeyCapsLock) {
+            quit = true
+            yield()
+        }
+
+        if ebiten.IsGamepadButtonPressed(gamepadId, pressedButton) {
+            if time.Since(timePressed) > totalPressTime {
+                return pressedButton
+            }
+        } else {
+            pressedButton = ebiten.GamepadButton(-1)
+            timePressed = time.Time{}
+        }
+
+        buttons = inpututil.AppendJustPressedGamepadButtons(gamepadId, buttons[:0])
+        if len(buttons) > 0 {
+            pressedButton = buttons[0]
+            timePressed = time.Now()
+        }
+    }
+
+    return ebiten.GamepadButton(-1)
+}
+
+func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawManager, inputProfile *InputProfile) *widget.Container {
     _, textHeight := text.Measure("A", tface, 0)
 
     container := widget.NewContainer(
@@ -683,8 +677,7 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
             makeButtonImage(color.RGBA{R: 255, G: 192, B: 203, A: 255}),
         }
 
-        for i, inputName := range []string{"Green", "Red", "Yellow", "Blue", "Orange", "Strum Up", "Strum Down", "Whammy"} {
-
+        for i, inputName := range []InputKind{InputGreen, InputRed, InputYellow, InputBlue, InputOrange, InputStrumUp, InputStrumDown} {
             box := widget.NewContainer(
                 widget.ContainerOpts.Layout(widget.NewRowLayout(
                     widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
@@ -693,7 +686,7 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
             )
 
             box.AddChild(widget.NewLabel(
-                widget.LabelOpts.Text(inputName, &tface, &widget.LabelColor{
+                widget.LabelOpts.Text(inputName.String(), &tface, &widget.LabelColor{
                     Idle: color.White,
                     Disabled: color.Gray{Y: 128},
                 }),
@@ -705,17 +698,24 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
 
             container.AddChild(box)
 
-            var button *widget.Button
-            button = makeButton("Not Set", tface, 200, func (args *widget.ButtonClickedEventArgs) {
-                var gamepadId ebiten.GamepadID
-                if inputIndex > 0 {
-                    gamepadId = gamepads[inputIndex - 1]
-                }
-                input := waitForInput(yield, inputIndex, gamepadId, tface, drawManager)
-                button.SetText(input)
-            })
+            if inputIndex == 0 {
+                // TODO: keyboard input
+                container.AddChild(makeButton("Set Key", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+                }))
+            } else {
+                gamepadId := gamepads[inputIndex - 1]
+                profile := inputProfile.GetGamepadProfile(gamepadId)
 
-            container.AddChild(button)
+                var button *widget.Button
+                button = makeButton(fmt.Sprintf("Button %v", profile.GetInput(inputName)), tface, 200, func (args *widget.ButtonClickedEventArgs) {
+                    var gamepadId ebiten.GamepadID
+                        input := waitForGamepadInput(yield, gamepadId, tface, drawManager)
+                        // TODO: check if input is in use already
+                        button.SetText(fmt.Sprintf("Button %v", input))
+                        profile.SetInput(inputName, input)
+                })
+                container.AddChild(button)
+            }
         }
     }
 
@@ -724,7 +724,7 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
     return container
 }
 
-func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace) {
+func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace, inputProfile *InputProfile) {
     quit := false
 
     var tface text.Face = face
@@ -773,7 +773,7 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     }))
 
     rootContainer.AddChild(makeButton(fmt.Sprintf("Configure input/joystick"), tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
-        ui.Container = makeInputMenu(yield, tface, engine)
+        ui.Container = makeInputMenu(yield, tface, engine, inputProfile)
     }))
 
     rootContainer.AddChild(makeButton("Back", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
@@ -782,7 +782,7 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     ui.Container = rootContainer
 
-    ui.Container = makeInputMenu(yield, tface, engine)
+    ui.Container = makeInputMenu(yield, tface, engine, inputProfile)
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
@@ -919,6 +919,9 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     }
     var tface text.Face = face
 
+    inputProfile := NewInputProfile()
+    // TODO: load input profile from file
+
     background := MakeBackground()
 
     /*
@@ -960,10 +963,10 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     rootContainer.AddChild(selectButton)
 
     rootContainer.AddChild(makeButton("Settings", tface, 200, func (args *widget.ButtonClickedEventArgs) {
-        doSettingsMenu(yield, engine, background, face)
+        doSettingsMenu(yield, engine, background, face, inputProfile)
     }))
 
-    doSettingsMenu(yield, engine, background, face)
+    doSettingsMenu(yield, engine, background, face, inputProfile)
 
     rootContainer.AddChild(makeButton("Quit", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         quit = true

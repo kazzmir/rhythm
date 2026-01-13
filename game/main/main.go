@@ -41,6 +41,95 @@ import (
 const ScreenWidth = 1400
 const ScreenHeight = 1000
 
+type InputKind int
+const (
+    InputGreen InputKind = iota
+    InputRed
+    InputYellow
+    InputBlue
+    InputOrange
+    InputStrumUp
+    InputStrumDown
+)
+
+func (inputKind InputKind) String() string {
+    switch inputKind {
+        case InputGreen: return "Green"
+        case InputRed: return "Red"
+        case InputYellow: return "Yellow"
+        case InputBlue: return "Blue"
+        case InputOrange: return "Orange"
+        case InputStrumUp: return "Strum Up"
+        case InputStrumDown: return "Strum Down"
+        default: return "Unknown"
+    }
+}
+
+type InputProfileGamepad struct {
+    GreenButton ebiten.GamepadButton
+    RedButton ebiten.GamepadButton
+    YellowButton ebiten.GamepadButton
+    BlueButton ebiten.GamepadButton
+    OrangeButton ebiten.GamepadButton
+    StrumUpButton ebiten.GamepadButton
+    StrumDownButton ebiten.GamepadButton
+}
+
+func (profile *InputProfileGamepad) SetInput(kind InputKind, button ebiten.GamepadButton) {
+    switch kind {
+        case InputGreen: profile.GreenButton = button
+        case InputRed: profile.RedButton = button
+        case InputYellow: profile.YellowButton = button
+        case InputBlue: profile.BlueButton = button
+        case InputOrange: profile.OrangeButton = button
+        case InputStrumUp: profile.StrumUpButton = button
+        case InputStrumDown: profile.StrumDownButton = button
+    }
+}
+
+func (profile *InputProfileGamepad) GetInput(kind InputKind) ebiten.GamepadButton {
+    switch kind {
+        case InputGreen: return profile.GreenButton
+        case InputRed: return profile.RedButton
+        case InputYellow: return profile.YellowButton
+        case InputBlue: return profile.BlueButton
+        case InputOrange: return profile.OrangeButton
+        case InputStrumUp: return profile.StrumUpButton
+        case InputStrumDown: return profile.StrumDownButton
+    }
+
+    return ebiten.GamepadButton(-1)
+}
+
+type InputProfileKeyboard struct {
+}
+
+/*
+type InputProfileInterface interface {
+    SetInput(kind InputKind, key ebiten.Key)
+}
+*/
+
+type InputProfile struct {
+    KeyboardProfile InputProfileKeyboard
+    GamepadProfiles map[ebiten.GamepadID]*InputProfileGamepad
+}
+
+func NewInputProfile() *InputProfile {
+    return &InputProfile{
+        GamepadProfiles: make(map[ebiten.GamepadID]*InputProfileGamepad),
+    }
+}
+
+func (profile *InputProfile) GetGamepadProfile(id ebiten.GamepadID) *InputProfileGamepad {
+    _, ok := profile.GamepadProfiles[id]
+    if !ok {
+        profile.GamepadProfiles[id] = &InputProfileGamepad{}
+    }
+
+    return profile.GamepadProfiles[id]
+}
+
 const NoteThresholdHigh = time.Millisecond * 250
 const NoteThresholdLow = -time.Millisecond * 150
 
