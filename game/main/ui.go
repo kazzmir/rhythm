@@ -474,6 +474,11 @@ func waitForInput(yield coroutine.YieldFunc, input int, gamepadId ebiten.Gamepad
 
         previousDrawer := drawManager.LastDrawer()
 
+        totalPressTime := 1000 * time.Millisecond
+
+        hueStart := 18
+        hueEnd := 119
+
         drawManager.PushDrawer(func(screen *ebiten.Image) {
             previousDrawer(screen)
 
@@ -492,10 +497,16 @@ func waitForInput(yield coroutine.YieldFunc, input int, gamepadId ebiten.Gamepad
                 textOptions.GeoM.Translate(0, 30)
                 text.Draw(screen, fmt.Sprintf("Button: %v", pressedButton), face, &textOptions)
 
-                timeLeft := 1000 * time.Millisecond - time.Since(timePressed)
+                timeLeft := totalPressTime - time.Since(timePressed)
 
                 ax, ay := textOptions.GeoM.Apply(0, 30)
-                vector.FillRect(screen, float32(ax), float32(ay), float32(200 * timeLeft / (1000 * time.Millisecond)), float32(10), color.NRGBA{R: 0, G: 255, B: 0, A: 255}, true)
+
+                hue := hueStart + int(timeLeft.Milliseconds() * int64(hueEnd - hueStart) / totalPressTime.Milliseconds())
+
+                c, err := colorconv.HSVToColor(float64(hue), 1.0, 1.0)
+                if err == nil {
+                    vector.FillRect(screen, float32(ax), float32(ay), float32(200 * timeLeft / totalPressTime), float32(10), c, true)
+                }
             }
 
         })
@@ -515,7 +526,7 @@ func waitForInput(yield coroutine.YieldFunc, input int, gamepadId ebiten.Gamepad
             }
 
             if ebiten.IsGamepadButtonPressed(gamepadId, pressedButton) {
-                if time.Since(timePressed) > 1000 * time.Millisecond {
+                if time.Since(timePressed) > totalPressTime {
                     quit = true
                 }
             } else {
