@@ -716,6 +716,15 @@ func (engine *Engine) PopDrawer() {
     }
 }
 
+func (engine *Engine) LastDrawer() func(screen *ebiten.Image) {
+    if len(engine.Drawers) > 0 {
+        return engine.Drawers[len(engine.Drawers)-1]
+    }
+
+    // dummy
+    return func(screen *ebiten.Image) {}
+}
+
 func loadMp3(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
     allData, err := io.ReadAll(bufio.NewReader(file))
     if err != nil {
