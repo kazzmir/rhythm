@@ -21,6 +21,7 @@ import (
     ui_image "github.com/ebitenui/ebitenui/image"
 
     "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/vector"
     "github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
@@ -456,15 +457,168 @@ func (background *Background) Draw(screen *ebiten.Image) {
     screen.DrawTriangles(vertices, []uint16{0, 1, 2, 2, 3, 0}, background.Source, nil)
 }
 
-func makeInputMenu(yield coroutine.YieldFunc) *widget.Container {
+func makeInputMenu(yield coroutine.YieldFunc, tface text.Face) *widget.Container {
+    _, textHeight := text.Measure("A", tface, 0)
+
     container := widget.NewContainer(
         widget.ContainerOpts.Layout(widget.NewGridLayout(
-            widget.GridLayoutOpts.Columns(1),
-            widget.GridLayoutOpts.DefaultStretch(true, false),
+            widget.GridLayoutOpts.Columns(2),
+            widget.GridLayoutOpts.DefaultStretch(false, false),
             widget.GridLayoutOpts.Spacing(0, 10),
             widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
         )),
     )
+
+    container.AddChild(widget.NewLabel(
+        widget.LabelOpts.Text("Input", &tface, &widget.LabelColor{
+            Idle: color.White,
+            Disabled: color.Gray{Y: 128},
+        }),
+        widget.LabelOpts.LabelPadding(&widget.Insets{
+            Left: 20,
+            Right: 20,
+        }),
+    ))
+
+    inputs := []string{"Keyboard"}
+
+    gamepads := ebiten.AppendGamepadIDs(nil)
+    for _, gamepad := range gamepads {
+        inputs = append(inputs, ebiten.GamepadName(gamepad))
+    }
+
+    var setupButtons func(inputIndex int)
+    setupButtons = func(inputIndex int) {
+        container.RemoveChildren()
+
+        container.AddChild(widget.NewLabel(
+            widget.LabelOpts.Text("Input", &tface, &widget.LabelColor{
+                Idle: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+            widget.LabelOpts.LabelPadding(&widget.Insets{
+                Left: 0,
+                Right: 0,
+            }),
+        ))
+
+        inputBox := widget.NewContainer(
+            widget.ContainerOpts.Layout(widget.NewRowLayout(
+                widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+                widget.RowLayoutOpts.Spacing(5),
+            )),
+        )
+
+        leftArrowImage := ebiten.NewImage(int(textHeight), int(textHeight))
+        leftArrowImage.Fill(color.White)
+        leftArrow := widget.GraphicImage{
+            Idle: leftArrowImage,
+            Disabled: leftArrowImage,
+            Pressed: leftArrowImage,
+            Hover: leftArrowImage,
+        }
+
+        baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
+        borderColor := color.NRGBA{R: 250, G: 250, B: 250, A: 100}
+        alpha := 120
+
+        // previous button
+        inputBox.AddChild(widget.NewButton(
+            widget.ButtonOpts.Image(&widget.ButtonImage{
+                Idle: ui_image.NewBorderedNineSliceColor(translucent(darkenColor(baseColor, 0.4), alpha), borderColor, 1),
+                Hover: ui_image.NewBorderedNineSliceColor(translucent(baseColor, alpha), borderColor, 1),
+                Pressed: ui_image.NewBorderedNineSliceColor(translucent(brightenColor(baseColor, 0.4), alpha), borderColor, 1),
+            }),
+            widget.ButtonOpts.TextAndImage("", &tface, &leftArrow, &widget.ButtonTextColor{
+                Idle: color.White,
+                Hover: color.White,
+                Pressed: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+            widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
+            widget.ButtonOpts.ClickedHandler(func (args *widget.ButtonClickedEventArgs) {
+                setupButtons((inputIndex - 1 + len(inputs)) % len(inputs))
+            }),
+        ))
+
+        inputBox.AddChild(widget.NewLabel(
+            widget.LabelOpts.Text(inputs[inputIndex], &tface, &widget.LabelColor{
+                Idle: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+        ))
+
+        // next button
+        inputBox.AddChild(widget.NewButton(
+            widget.ButtonOpts.Image(&widget.ButtonImage{
+                Idle: ui_image.NewBorderedNineSliceColor(translucent(darkenColor(baseColor, 0.4), alpha), borderColor, 1),
+                Hover: ui_image.NewBorderedNineSliceColor(translucent(baseColor, alpha), borderColor, 1),
+                Pressed: ui_image.NewBorderedNineSliceColor(translucent(brightenColor(baseColor, 0.4), alpha), borderColor, 1),
+            }),
+            widget.ButtonOpts.TextAndImage("", &tface, &leftArrow, &widget.ButtonTextColor{
+                Idle: color.White,
+                Hover: color.White,
+                Pressed: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+            widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
+            widget.ButtonOpts.ClickedHandler(func (args *widget.ButtonClickedEventArgs) {
+                setupButtons((inputIndex + 1) % len(inputs))
+            }),
+        ))
+
+        container.AddChild(inputBox)
+
+        makeButtonImage := func(col color.Color) *ebiten.Image {
+            out := ebiten.NewImage(int(textHeight), int(textHeight))
+
+            m := float32(textHeight / 2)
+
+            vector.FillCircle(out, m, m, m, col, true)
+            return out
+        }
+
+        // need inputs for all buttons
+
+        images := []*ebiten.Image{
+            makeButtonImage(color.RGBA{R: 0, G: 255, B: 0, A: 255}),
+            makeButtonImage(color.RGBA{R: 255, G: 0, B: 0, A: 255}),
+            makeButtonImage(color.RGBA{R: 255, G: 255, B: 0, A: 255}),
+            makeButtonImage(color.RGBA{R: 0, G: 0, B: 255, A: 255}),
+            makeButtonImage(color.RGBA{R: 255, G: 165, B: 0, A: 255}),
+            makeButtonImage(color.RGBA{R: 128, G: 0, B: 128, A: 255}),
+            makeButtonImage(color.RGBA{R: 0, G: 255, B: 255, A: 255}),
+            makeButtonImage(color.RGBA{R: 255, G: 192, B: 203, A: 255}),
+        }
+
+        for i, inputName := range []string{"Green", "Red", "Yellow", "Blue", "Orange", "Strum Up", "Strum Down", "Whammy"} {
+
+            box := widget.NewContainer(
+                widget.ContainerOpts.Layout(widget.NewRowLayout(
+                    widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+                    widget.RowLayoutOpts.Spacing(5),
+                )),
+            )
+
+            box.AddChild(widget.NewLabel(
+                widget.LabelOpts.Text(inputName, &tface, &widget.LabelColor{
+                    Idle: color.White,
+                    Disabled: color.Gray{Y: 128},
+                }),
+            ))
+
+            box.AddChild(widget.NewGraphic(
+                widget.GraphicOpts.Image(images[i]),
+            ))
+
+            container.AddChild(box)
+
+            container.AddChild(makeButton("Not Set", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+            }))
+        }
+    }
+
+    setupButtons(0)
 
     return container
 }
@@ -518,7 +672,7 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     }))
 
     rootContainer.AddChild(makeButton(fmt.Sprintf("Configure input/joystick"), tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
-        ui.Container = makeInputMenu(yield)
+        ui.Container = makeInputMenu(yield, tface)
     }))
 
     rootContainer.AddChild(makeButton("Back", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
@@ -526,6 +680,8 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     }))
 
     ui.Container = rootContainer
+
+    ui.Container = makeInputMenu(yield, tface)
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
@@ -705,6 +861,8 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     rootContainer.AddChild(makeButton("Settings", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         doSettingsMenu(yield, engine, background, face)
     }))
+
+    doSettingsMenu(yield, engine, background, face)
 
     rootContainer.AddChild(makeButton("Quit", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         quit = true
