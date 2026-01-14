@@ -41,6 +41,40 @@ import (
 const ScreenWidth = 1400
 const ScreenHeight = 1000
 
+type ConfigurationManager struct {
+}
+
+func (config *ConfigurationManager) LoadInputProfile() *InputProfile {
+    file, err := os.Open("config.json")
+    if err == nil {
+        defer file.Close()
+        buffer := bufio.NewReader(file)
+
+        profile, err := LoadInputProfile(buffer)
+        if err == nil {
+            return profile
+        } else {
+            log.Printf("Failed to load input profile from config.json: %v", err)
+        }
+    }
+
+    return NewInputProfile()
+}
+
+func (config *ConfigurationManager) SaveConfiguration(doSave func (io.Writer) error) error {
+    file, err := os.Create("config.json")
+    if err != nil {
+        return err
+    }
+
+    defer file.Close()
+
+    buffer := bufio.NewWriter(file)
+    defer buffer.Flush()
+
+    return doSave(buffer)
+}
+
 const NoteThresholdHigh = time.Millisecond * 250
 const NoteThresholdLow = -time.Millisecond * 150
 
@@ -86,6 +120,19 @@ const (
     InputActionStrumUp
     InputActionStrumDown
 )
+
+func (action InputAction) String() string {
+    switch action {
+        case InputActionGreen: return "Green"
+        case InputActionRed: return "Red"
+        case InputActionYellow: return "Yellow"
+        case InputActionBlue: return "Blue"
+        case InputActionOrange: return "Orange"
+        case InputActionStrumUp: return "Strum Up"
+        case InputActionStrumDown: return "Strum Down"
+        default: return "Unknown"
+    }
+}
 
 type Input struct {
     HasGamepad bool
@@ -159,7 +206,7 @@ func (song *Song) Close() {
     }
 }
 
-func (song *Song) Update(input *Input, flameMaker FlameMaker) {
+func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
     song.Counter += 1
 
     song.DoSong.Do(func(){
@@ -187,21 +234,30 @@ func (song *Song) Update(input *Input, flameMaker FlameMaker) {
 
     for i := range song.Frets {
         fret := &song.Frets[i]
-        key := input.KeyboardButtons[fret.InputAction]
+
+        if input.IsJustPressed(fret.InputAction) {
+            fret.Press = time.Now()
+        } else if input.IsJustReleased(fret.InputAction) {
+            fret.Press = time.Time{}
+        }
+
+        /*
+        key := input.GetKeyboardButton(fret.InputAction)
         if inpututil.IsKeyJustPressed(key) {
             fret.Press = time.Now()
         } else if inpututil.IsKeyJustReleased(key) {
             fret.Press = time.Time{}
         }
 
-        if input.HasGamepad {
-            button := input.GamepadButtons[fret.InputAction]
-            if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
+        if input.HasGamepad() {
+            button := input.GetGamepadButton(fret.InputAction)
+            if inpututil.IsGamepadButtonJustPressed(input.CurrentGamepadProfile.GamepadID, button) {
                 fret.Press = time.Now()
-            } else if inpututil.IsGamepadButtonJustReleased(input.GamepadID, button) {
+            } else if inpututil.IsGamepadButtonJustReleased(input.CurrentGamepadProfile.GamepadID, button) {
                 fret.Press = time.Time{}
             }
         }
+        */
     }
 
     playGuitar := false
@@ -215,11 +271,15 @@ func (song *Song) Update(input *Input, flameMaker FlameMaker) {
 
     var notesHit []*Note
 
-    strummed := inpututil.IsKeyJustPressed(input.KeyboardButtons[InputActionStrumDown])
-    if input.HasGamepad {
-        button := input.GamepadButtons[InputActionStrumDown]
-        strummed = strummed || inpututil.IsGamepadButtonJustPressed(input.GamepadID, button)
+    strummed := input.IsJustPressed(InputActionStrumDown)
+
+    /*
+    strummed := inpututil.IsKeyJustPressed(input.GetKeyboardButton(InputActionStrumDown))
+    if input.HasGamepad() {
+        button := input.GetGamepadButtons(InputActionStrumDown)
+        strummed = strummed || inpututil.IsGamepadButtonJustPressed(input.CurrentGamepadProfile.GamepadID, button)
     }
+    */
 
     delta := time.Since(song.StartTime)
     for fretIndex := range song.Frets {
@@ -246,14 +306,17 @@ func (song *Song) Update(input *Input, flameMaker FlameMaker) {
         pressed := false
 
         if allTapsMode {
-            key := input.KeyboardButtons[fret.InputAction]
+            pressed = input.IsJustPressed(fret.InputAction)
+            /*
+            key := input.GetKeyboardButton(fret.InputAction)
             pressed = inpututil.IsKeyJustPressed(key)
-            if input.HasGamepad {
-                button := input.GamepadButtons[fret.InputAction]
-                if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
+            if input.HasGamepad() {
+                button := input.GetGamepadButton(fret.InputAction)
+                if inpututil.IsGamepadButtonJustPressed(input.CurrentGamepadProfile.GamepadID, button) {
                     pressed = true
                 }
             }
+            */
         } else {
             pressed = !fret.Press.IsZero() && strummed
         }
@@ -697,11 +760,10 @@ type Engine struct {
 
     Drawers []func(screen *ebiten.Image)
 
-    Input *Input
-
     Coroutine *coroutine.Coroutine
+    Configuration *ConfigurationManager
 
-    GamepadIds map[ebiten.GamepadID]struct{}
+    // GamepadIds map[ebiten.GamepadID]struct{}
 
     // GuitarButtonMesh *tetra3d.Mesh
 }
@@ -714,6 +776,15 @@ func (engine *Engine) PopDrawer() {
     if len(engine.Drawers) > 0 {
         engine.Drawers = engine.Drawers[:len(engine.Drawers)-1]
     }
+}
+
+func (engine *Engine) LastDrawer() func(screen *ebiten.Image) {
+    if len(engine.Drawers) > 0 {
+        return engine.Drawers[len(engine.Drawers)-1]
+    }
+
+    // dummy
+    return func(screen *ebiten.Image) {}
 }
 
 func loadMp3(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
@@ -779,16 +850,16 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
     engine = &Engine{
         AudioContext: audioContext,
         Font: font,
-        GamepadIds: make(map[ebiten.GamepadID]struct{}),
-        Input: MakeDefaultInput(),
+        // GamepadIds: make(map[ebiten.GamepadID]struct{}),
         Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
             if songDirectory != "" {
-                err := playSong(yield, engine, songDirectory, DefaultSongSettings())
+                err := playSong(yield, engine, songDirectory, DefaultSongSettings(), NewInputProfile())
                 return err
             }
 
             return mainMenu(engine, yield)
         }),
+        Configuration: &ConfigurationManager{},
         // GuitarButtonMesh: tetra3d.NewCylinderMesh(2, 40, 50, false),
     }
 
@@ -839,6 +910,7 @@ func (engine *Engine) Update() error {
         }
     }
 
+    /*
     newGamepadIDs := inpututil.AppendJustConnectedGamepadIDs(nil)
     for _, id := range newGamepadIDs {
         log.Printf("Gamepad connected: %v '%s'", id, ebiten.GamepadName(id))
@@ -859,11 +931,13 @@ func (engine *Engine) Update() error {
             }
         }
     }
+
     for id := range engine.GamepadIds {
         if inpututil.IsGamepadJustDisconnected(id) {
             delete(engine.GamepadIds, id)
         }
     }
+    */
 
     if ebiten.IsWindowBeingClosed() {
         engine.Coroutine.Stop()
@@ -1421,7 +1495,7 @@ func lookAtVector(position tetra3d.Vector3, target tetra3d.Vector3) tetra3d.Vect
     return tetra3d.NewVector3(float32(pitch), float32(yaw), 0)
 }
 
-func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
+func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings, input *InputProfile) error {
     song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
         return err
@@ -1557,7 +1631,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
     var counter uint64
 
-    song.Update(engine.Input, particleManager)
+    song.Update(input, particleManager)
     for !song.Finished() {
         counter += 1
 
@@ -1611,7 +1685,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         delta := time.Since(song.StartTime)
 
-        song.Update(engine.Input, particleManager)
+        song.Update(input, particleManager)
 
         var notesOut []NoteModel
 

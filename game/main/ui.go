@@ -21,8 +21,15 @@ import (
     ui_image "github.com/ebitenui/ebitenui/image"
 
     "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/vector"
     "github.com/hajimehoshi/ebiten/v2/inpututil"
 )
+
+type DrawManager interface {
+    PushDrawer(drawer func(screen *ebiten.Image))
+    PopDrawer()
+    LastDrawer() func(screen *ebiten.Image)
+}
 
 func translucent(c color.Color, alpha int) color.NRGBA {
     r, g, b, _ := c.RGBA()
@@ -456,10 +463,400 @@ func (background *Background) Draw(screen *ebiten.Image) {
     screen.DrawTriangles(vertices, []uint16{0, 1, 2, 2, 3, 0}, background.Source, nil)
 }
 
-func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace) {
+func waitForKeyboardInput(yield coroutine.YieldFunc, face text.Face, drawManager DrawManager) ebiten.Key {
+    pressedKey := ebiten.Key(-1)
+    var timePressed time.Time
+
+    previousDrawer := drawManager.LastDrawer()
+
+    totalPressTime := 1000 * time.Millisecond
+
+    hueStart := 18
+    hueEnd := 119
+
+    drawManager.PushDrawer(func(screen *ebiten.Image) {
+        previousDrawer(screen)
+
+        x := float32(400)
+        y := float32(300)
+        width := float32(600)
+        height := float32(300)
+
+        vector.FillRect(screen, x, y, width, height, color.NRGBA{R: 0, G: 0, B: 0, A: 200}, true)
+        vector.StrokeRect(screen, x, y, width, height, 1, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, true)
+        var textOptions text.DrawOptions
+        textOptions.GeoM.Translate(float64(x + 10), float64(y + 2))
+        text.Draw(screen, "Hold a button on the gamepad for 1 second", face, &textOptions)
+
+        if pressedKey != -1 {
+            textOptions.GeoM.Translate(0, 30)
+            text.Draw(screen, fmt.Sprintf("Key: %v", pressedKey), face, &textOptions)
+
+            timeLeft := totalPressTime - time.Since(timePressed)
+
+            ax, ay := textOptions.GeoM.Apply(0, 30)
+
+            hue := hueStart + int(timeLeft.Milliseconds() * int64(hueEnd - hueStart) / totalPressTime.Milliseconds())
+
+            c, err := colorconv.HSVToColor(float64(hue), 1.0, 1.0)
+            if err == nil {
+                vector.FillRect(screen, float32(ax), float32(ay), float32(200 * timeLeft / totalPressTime), float32(10), c, true)
+            }
+        }
+
+    })
+    defer drawManager.PopDrawer()
+
+    var keys []ebiten.Key
+
+    quit := false
+    for !quit {
+        if yield() != nil {
+            return pressedKey
+        }
+
+        if ebiten.IsKeyPressed(ebiten.KeyEscape) || ebiten.IsKeyPressed(ebiten.KeyCapsLock) {
+            quit = true
+            yield()
+        }
+
+        if ebiten.IsKeyPressed(pressedKey) {
+            if time.Since(timePressed) > totalPressTime {
+                return pressedKey
+            }
+        } else {
+            pressedKey = ebiten.Key(-1)
+            timePressed = time.Time{}
+        }
+
+        keys = inpututil.AppendJustPressedKeys(keys[:0])
+        if len(keys) > 0 {
+            pressedKey = keys[0]
+            timePressed = time.Now()
+        }
+    }
+
+    return ebiten.Key(-1)
+}
+
+func waitForGamepadInput(yield coroutine.YieldFunc, gamepadId ebiten.GamepadID, face text.Face, drawManager DrawManager) ebiten.GamepadButton {
+    pressedButton := ebiten.GamepadButton(-1)
+    var timePressed time.Time
+
+    previousDrawer := drawManager.LastDrawer()
+
+    totalPressTime := 1000 * time.Millisecond
+
+    hueStart := 18
+    hueEnd := 119
+
+    drawManager.PushDrawer(func(screen *ebiten.Image) {
+        previousDrawer(screen)
+
+        x := float32(400)
+        y := float32(300)
+        width := float32(600)
+        height := float32(300)
+
+        vector.FillRect(screen, x, y, width, height, color.NRGBA{R: 0, G: 0, B: 0, A: 200}, true)
+        vector.StrokeRect(screen, x, y, width, height, 1, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, true)
+        var textOptions text.DrawOptions
+        textOptions.GeoM.Translate(float64(x + 10), float64(y + 2))
+        text.Draw(screen, "Hold a button on the gamepad for 1 second", face, &textOptions)
+
+        if pressedButton != -1 {
+            textOptions.GeoM.Translate(0, 30)
+            text.Draw(screen, fmt.Sprintf("Button: %v", pressedButton), face, &textOptions)
+
+            timeLeft := totalPressTime - time.Since(timePressed)
+
+            ax, ay := textOptions.GeoM.Apply(0, 30)
+
+            hue := hueStart + int(timeLeft.Milliseconds() * int64(hueEnd - hueStart) / totalPressTime.Milliseconds())
+
+            c, err := colorconv.HSVToColor(float64(hue), 1.0, 1.0)
+            if err == nil {
+                vector.FillRect(screen, float32(ax), float32(ay), float32(200 * timeLeft / totalPressTime), float32(10), c, true)
+            }
+        }
+
+    })
+    defer drawManager.PopDrawer()
+
+    var buttons []ebiten.GamepadButton
+
+    quit := false
+    for !quit {
+        if yield() != nil {
+            return pressedButton
+        }
+
+        if ebiten.IsKeyPressed(ebiten.KeyEscape) || ebiten.IsKeyPressed(ebiten.KeyCapsLock) {
+            quit = true
+            yield()
+        }
+
+        if ebiten.IsGamepadButtonPressed(gamepadId, pressedButton) {
+            if time.Since(timePressed) > totalPressTime {
+                return pressedButton
+            }
+        } else {
+            pressedButton = ebiten.GamepadButton(-1)
+            timePressed = time.Time{}
+        }
+
+        buttons = inpututil.AppendJustPressedGamepadButtons(gamepadId, buttons[:0])
+        if len(buttons) > 0 {
+            pressedButton = buttons[0]
+            timePressed = time.Now()
+        }
+    }
+
+    return ebiten.GamepadButton(-1)
+}
+
+func makeLeftArrow(width, height int, col color.Color) *ebiten.Image {
+    out := ebiten.NewImage(width, height)
+
+    var path vector.Path
+    path.MoveTo(0, float32(height)/2)
+    path.LineTo(float32(width), 0)
+    path.LineTo(float32(width), float32(height))
+    path.Close()
+
+    vector.FillPath(out, &path, &vector.FillOptions{}, &vector.DrawPathOptions{})
+
+    return out
+}
+
+func makeRightArrow(width, height int, col color.Color) *ebiten.Image {
+    out := ebiten.NewImage(width, height)
+
+    var path vector.Path
+    path.MoveTo(float32(width), float32(height)/2)
+    path.LineTo(0, 0)
+    path.LineTo(0, float32(height))
+    path.Close()
+
+    vector.FillPath(out, &path, &vector.FillOptions{}, &vector.DrawPathOptions{})
+
+    return out
+}
+
+func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawManager, inputProfile *InputProfile, configuration *ConfigurationManager) *widget.Container {
+    _, textHeight := text.Measure("A", tface, 0)
+
+    container := widget.NewContainer(
+        widget.ContainerOpts.Layout(widget.NewGridLayout(
+            widget.GridLayoutOpts.Columns(2),
+            widget.GridLayoutOpts.DefaultStretch(false, false),
+            widget.GridLayoutOpts.Spacing(0, 10),
+            widget.GridLayoutOpts.Padding(&widget.Insets{Top: 80, Left: 20, Right: 10, Bottom: 10}),
+        )),
+    )
+
+    container.AddChild(widget.NewLabel(
+        widget.LabelOpts.Text("Input", &tface, &widget.LabelColor{
+            Idle: color.White,
+            Disabled: color.Gray{Y: 128},
+        }),
+        widget.LabelOpts.LabelPadding(&widget.Insets{
+            Left: 20,
+            Right: 20,
+        }),
+    ))
+
+    inputs := []string{"Keyboard"}
+
+    gamepads := ebiten.AppendGamepadIDs(nil)
+    for _, gamepad := range gamepads {
+        inputs = append(inputs, ebiten.GamepadName(gamepad))
+    }
+
+    // leftArrowImage := ebiten.NewImage(int(textHeight), int(textHeight))
+    // leftArrowImage.Fill(color.White)
+    leftArrowImage := makeLeftArrow(int(textHeight), int(textHeight), color.White)
+    leftArrow := widget.GraphicImage{
+        Idle: leftArrowImage,
+        Disabled: leftArrowImage,
+        Pressed: leftArrowImage,
+        Hover: leftArrowImage,
+    }
+
+    rightArrowImage := makeRightArrow(int(textHeight), int(textHeight), color.White)
+    rightArrow := widget.GraphicImage{
+        Idle: rightArrowImage,
+        Disabled: rightArrowImage,
+        Pressed: rightArrowImage,
+        Hover: rightArrowImage,
+    }
+
+    var setupButtons func(inputIndex int)
+    setupButtons = func(inputIndex int) {
+        container.RemoveChildren()
+
+        if inputIndex == 0 {
+            inputProfile.SetKeyboardProfile(inputProfile.KeyboardProfile)
+        } else {
+            profile := inputProfile.GetGamepadProfile(gamepads[inputIndex - 1])
+            inputProfile.SetGamepadProfile(profile)
+        }
+
+        container.AddChild(widget.NewLabel(
+            widget.LabelOpts.Text("Input", &tface, &widget.LabelColor{
+                Idle: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+            widget.LabelOpts.LabelPadding(&widget.Insets{
+                Left: 0,
+                Right: 0,
+            }),
+        ))
+
+        inputBox := widget.NewContainer(
+            widget.ContainerOpts.Layout(widget.NewRowLayout(
+                widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+                widget.RowLayoutOpts.Spacing(5),
+            )),
+        )
+
+        baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
+        borderColor := color.NRGBA{R: 250, G: 250, B: 250, A: 100}
+        alpha := 120
+
+        // previous button
+        inputBox.AddChild(widget.NewButton(
+            widget.ButtonOpts.Image(&widget.ButtonImage{
+                Idle: ui_image.NewBorderedNineSliceColor(translucent(darkenColor(baseColor, 0.4), alpha), borderColor, 1),
+                Hover: ui_image.NewBorderedNineSliceColor(translucent(baseColor, alpha), borderColor, 1),
+                Pressed: ui_image.NewBorderedNineSliceColor(translucent(brightenColor(baseColor, 0.4), alpha), borderColor, 1),
+            }),
+            widget.ButtonOpts.TextAndImage("", &tface, &leftArrow, &widget.ButtonTextColor{
+                Idle: color.White,
+                Hover: color.White,
+                Pressed: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+            widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
+            widget.ButtonOpts.ClickedHandler(func (args *widget.ButtonClickedEventArgs) {
+                setupButtons((inputIndex - 1 + len(inputs)) % len(inputs))
+            }),
+        ))
+
+        inputBox.AddChild(widget.NewLabel(
+            widget.LabelOpts.Text(inputs[inputIndex], &tface, &widget.LabelColor{
+                Idle: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+        ))
+
+        // next button
+        inputBox.AddChild(widget.NewButton(
+            widget.ButtonOpts.Image(&widget.ButtonImage{
+                Idle: ui_image.NewBorderedNineSliceColor(translucent(darkenColor(baseColor, 0.4), alpha), borderColor, 1),
+                Hover: ui_image.NewBorderedNineSliceColor(translucent(baseColor, alpha), borderColor, 1),
+                Pressed: ui_image.NewBorderedNineSliceColor(translucent(brightenColor(baseColor, 0.4), alpha), borderColor, 1),
+            }),
+            widget.ButtonOpts.TextAndImage("", &tface, &rightArrow, &widget.ButtonTextColor{
+                Idle: color.White,
+                Hover: color.White,
+                Pressed: color.White,
+                Disabled: color.Gray{Y: 128},
+            }),
+            widget.ButtonOpts.TextPadding(&widget.Insets{Top: 2, Bottom: 2, Left: 5, Right: 5}),
+            widget.ButtonOpts.ClickedHandler(func (args *widget.ButtonClickedEventArgs) {
+                setupButtons((inputIndex + 1) % len(inputs))
+            }),
+        ))
+
+        container.AddChild(inputBox)
+
+        makeButtonImage := func(col color.Color) *ebiten.Image {
+            out := ebiten.NewImage(int(textHeight), int(textHeight))
+
+            m := float32(textHeight / 2)
+
+            vector.FillCircle(out, m, m, m, col, true)
+            return out
+        }
+
+        // need inputs for all buttons
+
+        images := []*ebiten.Image{
+            makeButtonImage(color.RGBA{R: 0, G: 255, B: 0, A: 255}),
+            makeButtonImage(color.RGBA{R: 255, G: 0, B: 0, A: 255}),
+            makeButtonImage(color.RGBA{R: 255, G: 255, B: 0, A: 255}),
+            makeButtonImage(color.RGBA{R: 0, G: 0, B: 255, A: 255}),
+            makeButtonImage(color.RGBA{R: 255, G: 165, B: 0, A: 255}),
+            makeButtonImage(color.RGBA{R: 128, G: 0, B: 128, A: 255}),
+            makeButtonImage(color.RGBA{R: 0, G: 255, B: 255, A: 255}),
+            makeButtonImage(color.RGBA{R: 255, G: 192, B: 203, A: 255}),
+        }
+
+        for i, inputName := range []InputAction{InputActionGreen, InputActionRed, InputActionYellow, InputActionBlue, InputActionOrange, InputActionStrumUp, InputActionStrumDown} {
+            box := widget.NewContainer(
+                widget.ContainerOpts.Layout(widget.NewRowLayout(
+                    widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+                    widget.RowLayoutOpts.Spacing(5),
+                )),
+            )
+
+            box.AddChild(widget.NewLabel(
+                widget.LabelOpts.Text(inputName.String(), &tface, &widget.LabelColor{
+                    Idle: color.White,
+                    Disabled: color.Gray{Y: 128},
+                }),
+            ))
+
+            box.AddChild(widget.NewGraphic(
+                widget.GraphicOpts.Image(images[i]),
+            ))
+
+            container.AddChild(box)
+
+            if inputIndex == 0 {
+                // TODO: keyboard input
+                var button *widget.Button
+                button = makeButton(inputProfile.KeyboardProfile.GetInput(inputName).String(), tface, 200, func (args *widget.ButtonClickedEventArgs) {
+                    key := waitForKeyboardInput(yield, tface, drawManager)
+                    button.SetText(key.String())
+                    inputProfile.KeyboardProfile.SetInput(inputName, key)
+
+                    configuration.SaveConfiguration(inputProfile.Serialize)
+                })
+
+                container.AddChild(button)
+            } else {
+                gamepadId := gamepads[inputIndex - 1]
+                profile := inputProfile.GetGamepadProfile(gamepadId)
+
+                var button *widget.Button
+                button = makeButton(fmt.Sprintf("Button %v", profile.GetInput(inputName)), tface, 200, func (args *widget.ButtonClickedEventArgs) {
+                    var gamepadId ebiten.GamepadID
+                    input := waitForGamepadInput(yield, gamepadId, tface, drawManager)
+                    // TODO: check if input is in use already
+                    button.SetText(fmt.Sprintf("Button %v", input))
+                    profile.SetInput(inputName, input)
+
+                    configuration.SaveConfiguration(inputProfile.Serialize)
+                })
+                container.AddChild(button)
+            }
+        }
+    }
+
+    setupButtons(0)
+
+    return container
+}
+
+func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace, inputProfile *InputProfile, configuration *ConfigurationManager) {
     quit := false
 
     var tface text.Face = face
+
+    ui := ebitenui.UI{
+    }
 
     rootContainer := widget.NewContainer(
         widget.ContainerOpts.Layout(widget.NewGridLayout(
@@ -474,7 +871,7 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     var makeFullscreenButton func() *widget.Button
 
-    maxButtonWidth := 250
+    maxButtonWidth := 320
 
     makeFullscreenButton = func() *widget.Button {
         oldButton := fullscreenButton
@@ -496,13 +893,20 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     rootContainer.AddChild(makeFullscreenButton())
 
+    rootContainer.AddChild(makeButton(fmt.Sprintf("VSync Toggle: %v", ebiten.IsVsyncEnabled()), tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
+        ebiten.SetVsyncEnabled(!ebiten.IsVsyncEnabled())
+        args.Button.SetText(fmt.Sprintf("VSync Toggle: %v", ebiten.IsVsyncEnabled()))
+    }))
+
+    rootContainer.AddChild(makeButton(fmt.Sprintf("Configure input/joystick"), tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
+        ui.Container = makeInputMenu(yield, tface, engine, inputProfile, configuration)
+    }))
+
     rootContainer.AddChild(makeButton("Back", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
         quit = true
     }))
 
-    ui := ebitenui.UI{
-        Container: rootContainer,
-    }
+    ui.Container = rootContainer
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
@@ -639,6 +1043,8 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     }
     var tface text.Face = face
 
+    inputProfile := engine.Configuration.LoadInputProfile()
+
     background := MakeBackground()
 
     /*
@@ -669,7 +1075,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
             // yield()
 
             if !canceled {
-                playSong(yield, engine, selectedSong, setup)
+                playSong(yield, engine, selectedSong, setup, inputProfile)
             } else {
                 yield()
             }
@@ -680,7 +1086,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     rootContainer.AddChild(selectButton)
 
     rootContainer.AddChild(makeButton("Settings", tface, 200, func (args *widget.ButtonClickedEventArgs) {
-        doSettingsMenu(yield, engine, background, face)
+        doSettingsMenu(yield, engine, background, face, inputProfile, engine.Configuration)
     }))
 
     rootContainer.AddChild(makeButton("Quit", tface, 200, func (args *widget.ButtonClickedEventArgs) {
