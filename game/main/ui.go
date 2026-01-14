@@ -744,7 +744,7 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
 
             if inputIndex == 0 {
                 // TODO: keyboard input
-                container.AddChild(makeButton("Set Key", tface, 200, func (args *widget.ButtonClickedEventArgs) {
+                container.AddChild(makeButton(inputProfile.KeyboardProfile.GetInput(inputName).String(), tface, 200, func (args *widget.ButtonClickedEventArgs) {
                 }))
             } else {
                 gamepadId := gamepads[inputIndex - 1]

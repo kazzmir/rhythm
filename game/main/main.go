@@ -41,7 +41,6 @@ import (
 const ScreenWidth = 1400
 const ScreenHeight = 1000
 
-
 type InputProfileGamepad struct {
     GamepadID ebiten.GamepadID
 
@@ -94,13 +93,51 @@ func (profile *InputProfileGamepad) GetInput(kind InputAction) ebiten.GamepadBut
 }
 
 type InputProfileKeyboard struct {
+    GreenButton ebiten.Key
+    RedButton ebiten.Key
+    YellowButton ebiten.Key
+    BlueButton ebiten.Key
+    OrangeButton ebiten.Key
+    StrumUpButton ebiten.Key
+    StrumDownButton ebiten.Key
 }
 
 func (profile *InputProfileKeyboard) SetInput(kind InputAction, key ebiten.Key) {
+    switch kind {
+        case InputActionGreen: profile.GreenButton = key
+        case InputActionRed: profile.RedButton = key
+        case InputActionYellow: profile.YellowButton = key
+        case InputActionBlue: profile.BlueButton = key
+        case InputActionOrange: profile.OrangeButton = key
+        case InputActionStrumUp: profile.StrumUpButton = key
+        case InputActionStrumDown: profile.StrumDownButton = key
+    }
 }
 
 func (profile *InputProfileKeyboard) GetInput(kind InputAction) ebiten.Key {
-    return ebiten.KeyUp
+    switch kind {
+        case InputActionGreen: return profile.GreenButton
+        case InputActionRed: return profile.RedButton
+        case InputActionYellow: return profile.YellowButton
+        case InputActionBlue: return profile.BlueButton
+        case InputActionOrange: return profile.OrangeButton
+        case InputActionStrumUp: return profile.StrumUpButton
+        case InputActionStrumDown: return profile.StrumDownButton
+    }
+
+    return ebiten.Key(-1)
+}
+
+func NewInputProfileKeyboard() *InputProfileKeyboard {
+    return &InputProfileKeyboard{
+        GreenButton: ebiten.Key1,
+        RedButton: ebiten.Key2,
+        YellowButton: ebiten.Key3,
+        BlueButton: ebiten.Key4,
+        OrangeButton: ebiten.Key5,
+        StrumUpButton: ebiten.KeyUp,
+        StrumDownButton: ebiten.KeySpace,
+    }
 }
 
 /*
@@ -125,7 +162,7 @@ type InputProfile struct {
 
 func NewInputProfile() *InputProfile {
     return &InputProfile{
-        KeyboardProfile: &InputProfileKeyboard{},
+        KeyboardProfile: NewInputProfileKeyboard(),
         GamepadProfiles: make(map[ebiten.GamepadID]*InputProfileGamepad),
         CurrentProfile: UseProfileKeyboard,
     }
