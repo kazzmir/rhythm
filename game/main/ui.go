@@ -908,8 +908,6 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     ui.Container = rootContainer
 
-    ui.Container = makeInputMenu(yield, tface, engine, inputProfile, configuration)
-
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
         ui.Draw(screen)
@@ -1090,8 +1088,6 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     rootContainer.AddChild(makeButton("Settings", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         doSettingsMenu(yield, engine, background, face, inputProfile, engine.Configuration)
     }))
-
-    doSettingsMenu(yield, engine, background, face, inputProfile, engine.Configuration)
 
     rootContainer.AddChild(makeButton("Quit", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         quit = true
