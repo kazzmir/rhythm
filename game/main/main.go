@@ -41,31 +41,10 @@ import (
 const ScreenWidth = 1400
 const ScreenHeight = 1000
 
-type InputKind int
-const (
-    InputGreen InputKind = iota
-    InputRed
-    InputYellow
-    InputBlue
-    InputOrange
-    InputStrumUp
-    InputStrumDown
-)
-
-func (inputKind InputKind) String() string {
-    switch inputKind {
-        case InputGreen: return "Green"
-        case InputRed: return "Red"
-        case InputYellow: return "Yellow"
-        case InputBlue: return "Blue"
-        case InputOrange: return "Orange"
-        case InputStrumUp: return "Strum Up"
-        case InputStrumDown: return "Strum Down"
-        default: return "Unknown"
-    }
-}
 
 type InputProfileGamepad struct {
+    GamepadID ebiten.GamepadID
+
     GreenButton ebiten.GamepadButton
     RedButton ebiten.GamepadButton
     YellowButton ebiten.GamepadButton
@@ -75,33 +54,40 @@ type InputProfileGamepad struct {
     StrumDownButton ebiten.GamepadButton
 }
 
-func (profile *InputProfileGamepad) SetInput(kind InputKind, button ebiten.GamepadButton) {
+func (profile *InputProfileGamepad) SetInput(kind InputAction, button ebiten.GamepadButton) {
     switch kind {
-        case InputGreen: profile.GreenButton = button
-        case InputRed: profile.RedButton = button
-        case InputYellow: profile.YellowButton = button
-        case InputBlue: profile.BlueButton = button
-        case InputOrange: profile.OrangeButton = button
-        case InputStrumUp: profile.StrumUpButton = button
-        case InputStrumDown: profile.StrumDownButton = button
+        case InputActionGreen: profile.GreenButton = button
+        case InputActionRed: profile.RedButton = button
+        case InputActionYellow: profile.YellowButton = button
+        case InputActionBlue: profile.BlueButton = button
+        case InputActionOrange: profile.OrangeButton = button
+        case InputActionStrumUp: profile.StrumUpButton = button
+        case InputActionStrumDown: profile.StrumDownButton = button
     }
 }
 
-func (profile *InputProfileGamepad) GetInput(kind InputKind) ebiten.GamepadButton {
+func (profile *InputProfileGamepad) GetInput(kind InputAction) ebiten.GamepadButton {
     switch kind {
-        case InputGreen: return profile.GreenButton
-        case InputRed: return profile.RedButton
-        case InputYellow: return profile.YellowButton
-        case InputBlue: return profile.BlueButton
-        case InputOrange: return profile.OrangeButton
-        case InputStrumUp: return profile.StrumUpButton
-        case InputStrumDown: return profile.StrumDownButton
+        case InputActionGreen: return profile.GreenButton
+        case InputActionRed: return profile.RedButton
+        case InputActionYellow: return profile.YellowButton
+        case InputActionBlue: return profile.BlueButton
+        case InputActionOrange: return profile.OrangeButton
+        case InputActionStrumUp: return profile.StrumUpButton
+        case InputActionStrumDown: return profile.StrumDownButton
     }
 
     return ebiten.GamepadButton(-1)
 }
 
 type InputProfileKeyboard struct {
+}
+
+func (profile *InputProfileKeyboard) SetInput(kind InputAction, key ebiten.Key) {
+}
+
+func (profile *InputProfileKeyboard) GetInput(kind InputAction) ebiten.Key {
+    return ebiten.KeyUp
 }
 
 /*
@@ -145,10 +131,37 @@ func (profile *InputProfile) SetGamepadProfile(gamepadProfile *InputProfileGamep
 func (profile *InputProfile) GetGamepadProfile(id ebiten.GamepadID) *InputProfileGamepad {
     _, ok := profile.GamepadProfiles[id]
     if !ok {
-        profile.GamepadProfiles[id] = &InputProfileGamepad{}
+        profile.GamepadProfiles[id] = &InputProfileGamepad{GamepadID: id}
     }
 
     return profile.GamepadProfiles[id]
+}
+
+func (profile *InputProfile) IsJustPressed(action InputAction) bool {
+    switch profile.CurrentProfile {
+        case UseProfileKeyboard:
+            key := profile.KeyboardProfile.GetInput(action)
+            return inpututil.IsKeyJustPressed(key)
+        case UseProfileGamepad:
+            button := profile.CurrentGamepadProfile.GetInput(action)
+            return inpututil.IsGamepadButtonJustPressed(profile.CurrentGamepadProfile.GamepadID, button)
+    }
+
+    return false
+}
+
+func (profile *InputProfile) IsJustReleased(action InputAction) bool {
+    switch profile.CurrentProfile {
+        case UseProfileKeyboard:
+            key := profile.KeyboardProfile.GetInput(action)
+            return inpututil.IsKeyJustReleased(key)
+        case UseProfileGamepad:
+            button := profile.CurrentGamepadProfile.GetInput(action)
+            return inpututil.IsGamepadButtonJustReleased(profile.CurrentGamepadProfile.GamepadID, button)
+    }
+
+    return false
+
 }
 
 const NoteThresholdHigh = time.Millisecond * 250
@@ -196,6 +209,19 @@ const (
     InputActionStrumUp
     InputActionStrumDown
 )
+
+func (action InputAction) String() string {
+    switch action {
+        case InputActionGreen: return "Green"
+        case InputActionRed: return "Red"
+        case InputActionYellow: return "Yellow"
+        case InputActionBlue: return "Blue"
+        case InputActionOrange: return "Orange"
+        case InputActionStrumUp: return "Strum Up"
+        case InputActionStrumDown: return "Strum Down"
+        default: return "Unknown"
+    }
+}
 
 type Input struct {
     HasGamepad bool
@@ -269,7 +295,7 @@ func (song *Song) Close() {
     }
 }
 
-func (song *Song) Update(input *Input, flameMaker FlameMaker) {
+func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
     song.Counter += 1
 
     song.DoSong.Do(func(){
@@ -297,21 +323,30 @@ func (song *Song) Update(input *Input, flameMaker FlameMaker) {
 
     for i := range song.Frets {
         fret := &song.Frets[i]
-        key := input.KeyboardButtons[fret.InputAction]
+
+        if input.IsJustPressed(fret.InputAction) {
+            fret.Press = time.Now()
+        } else if input.IsJustReleased(fret.InputAction) {
+            fret.Press = time.Time{}
+        }
+
+        /*
+        key := input.GetKeyboardButton(fret.InputAction)
         if inpututil.IsKeyJustPressed(key) {
             fret.Press = time.Now()
         } else if inpututil.IsKeyJustReleased(key) {
             fret.Press = time.Time{}
         }
 
-        if input.HasGamepad {
-            button := input.GamepadButtons[fret.InputAction]
-            if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
+        if input.HasGamepad() {
+            button := input.GetGamepadButton(fret.InputAction)
+            if inpututil.IsGamepadButtonJustPressed(input.CurrentGamepadProfile.GamepadID, button) {
                 fret.Press = time.Now()
-            } else if inpututil.IsGamepadButtonJustReleased(input.GamepadID, button) {
+            } else if inpututil.IsGamepadButtonJustReleased(input.CurrentGamepadProfile.GamepadID, button) {
                 fret.Press = time.Time{}
             }
         }
+        */
     }
 
     playGuitar := false
@@ -325,11 +360,15 @@ func (song *Song) Update(input *Input, flameMaker FlameMaker) {
 
     var notesHit []*Note
 
-    strummed := inpututil.IsKeyJustPressed(input.KeyboardButtons[InputActionStrumDown])
-    if input.HasGamepad {
-        button := input.GamepadButtons[InputActionStrumDown]
-        strummed = strummed || inpututil.IsGamepadButtonJustPressed(input.GamepadID, button)
+    strummed := input.IsJustPressed(InputActionStrumDown)
+
+    /*
+    strummed := inpututil.IsKeyJustPressed(input.GetKeyboardButton(InputActionStrumDown))
+    if input.HasGamepad() {
+        button := input.GetGamepadButtons(InputActionStrumDown)
+        strummed = strummed || inpututil.IsGamepadButtonJustPressed(input.CurrentGamepadProfile.GamepadID, button)
     }
+    */
 
     delta := time.Since(song.StartTime)
     for fretIndex := range song.Frets {
@@ -356,14 +395,17 @@ func (song *Song) Update(input *Input, flameMaker FlameMaker) {
         pressed := false
 
         if allTapsMode {
-            key := input.KeyboardButtons[fret.InputAction]
+            pressed = input.IsJustPressed(fret.InputAction)
+            /*
+            key := input.GetKeyboardButton(fret.InputAction)
             pressed = inpututil.IsKeyJustPressed(key)
-            if input.HasGamepad {
-                button := input.GamepadButtons[fret.InputAction]
-                if inpututil.IsGamepadButtonJustPressed(input.GamepadID, button) {
+            if input.HasGamepad() {
+                button := input.GetGamepadButton(fret.InputAction)
+                if inpututil.IsGamepadButtonJustPressed(input.CurrentGamepadProfile.GamepadID, button) {
                     pressed = true
                 }
             }
+            */
         } else {
             pressed = !fret.Press.IsZero() && strummed
         }
@@ -902,7 +944,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
         Input: MakeDefaultInput(),
         Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
             if songDirectory != "" {
-                err := playSong(yield, engine, songDirectory, DefaultSongSettings())
+                err := playSong(yield, engine, songDirectory, DefaultSongSettings(), NewInputProfile())
                 return err
             }
 
@@ -1540,7 +1582,7 @@ func lookAtVector(position tetra3d.Vector3, target tetra3d.Vector3) tetra3d.Vect
     return tetra3d.NewVector3(float32(pitch), float32(yaw), 0)
 }
 
-func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings) error {
+func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settings SongSettings, input *InputProfile) error {
     song, err := MakeSong(engine.AudioContext, songPath, settings.Difficulty)
     if err != nil {
         return err
@@ -1676,7 +1718,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
     var counter uint64
 
-    song.Update(engine.Input, particleManager)
+    song.Update(input, particleManager)
     for !song.Finished() {
         counter += 1
 
@@ -1730,7 +1772,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         delta := time.Since(song.StartTime)
 
-        song.Update(engine.Input, particleManager)
+        song.Update(input, particleManager)
 
         var notesOut []NoteModel
 

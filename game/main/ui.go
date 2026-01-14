@@ -721,7 +721,7 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
             makeButtonImage(color.RGBA{R: 255, G: 192, B: 203, A: 255}),
         }
 
-        for i, inputName := range []InputKind{InputGreen, InputRed, InputYellow, InputBlue, InputOrange, InputStrumUp, InputStrumDown} {
+        for i, inputName := range []InputAction{InputActionGreen, InputActionRed, InputActionYellow, InputActionBlue, InputActionOrange, InputActionStrumUp, InputActionStrumDown} {
             box := widget.NewContainer(
                 widget.ContainerOpts.Layout(widget.NewRowLayout(
                     widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
@@ -996,7 +996,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
             // yield()
 
             if !canceled {
-                playSong(yield, engine, selectedSong, setup)
+                playSong(yield, engine, selectedSong, setup, inputProfile)
             } else {
                 yield()
             }
