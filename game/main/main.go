@@ -54,6 +54,19 @@ type InputProfileGamepad struct {
     StrumDownButton ebiten.GamepadButton
 }
 
+func NewInputProfileGamepad(id ebiten.GamepadID) *InputProfileGamepad {
+    return &InputProfileGamepad{
+        GamepadID: id,
+        GreenButton: ebiten.GamepadButton(-1),
+        RedButton: ebiten.GamepadButton(-1),
+        YellowButton: ebiten.GamepadButton(-1),
+        BlueButton: ebiten.GamepadButton(-1),
+        OrangeButton: ebiten.GamepadButton(-1),
+        StrumUpButton: ebiten.GamepadButton(-1),
+        StrumDownButton: ebiten.GamepadButton(-1),
+    }
+}
+
 func (profile *InputProfileGamepad) SetInput(kind InputAction, button ebiten.GamepadButton) {
     switch kind {
         case InputActionGreen: profile.GreenButton = button
@@ -131,7 +144,7 @@ func (profile *InputProfile) SetGamepadProfile(gamepadProfile *InputProfileGamep
 func (profile *InputProfile) GetGamepadProfile(id ebiten.GamepadID) *InputProfileGamepad {
     _, ok := profile.GamepadProfiles[id]
     if !ok {
-        profile.GamepadProfiles[id] = &InputProfileGamepad{GamepadID: id}
+        profile.GamepadProfiles[id] = NewInputProfileGamepad(id)
     }
 
     return profile.GamepadProfiles[id]
