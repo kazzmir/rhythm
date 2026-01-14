@@ -1045,8 +1045,7 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     }
     var tface text.Face = face
 
-    inputProfile := NewInputProfile()
-    // TODO: load input profile from file
+    inputProfile := engine.Configuration.LoadInputProfile()
 
     background := MakeBackground()
 

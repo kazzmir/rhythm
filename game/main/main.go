@@ -44,6 +44,23 @@ const ScreenHeight = 1000
 type ConfigurationManager struct {
 }
 
+func (config *ConfigurationManager) LoadInputProfile() *InputProfile {
+    file, err := os.Open("config.json")
+    if err == nil {
+        defer file.Close()
+        buffer := bufio.NewReader(file)
+
+        profile, err := LoadInputProfile(buffer)
+        if err == nil {
+            return profile
+        } else {
+            log.Printf("Failed to load input profile from config.json: %v", err)
+        }
+    }
+
+    return NewInputProfile()
+}
+
 func (config *ConfigurationManager) SaveConfiguration(doSave func (io.Writer) error) error {
     file, err := os.Create("config.json")
     if err != nil {

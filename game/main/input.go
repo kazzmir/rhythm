@@ -9,7 +9,7 @@ import (
 )
 
 type SerializedGamepadProfile struct {
-    GamepadID ebiten.GamepadID `json:"gamepad_id"`
+    ID string `json:"gamepad_id"`
     Name string `json:"name"`
     GreenButton ebiten.GamepadButton `json:"green_button"`
     RedButton ebiten.GamepadButton `json:"red_button"`
@@ -47,7 +47,7 @@ func NewInputProfileGamepad(id ebiten.GamepadID) *InputProfileGamepad {
 
 func (profile *InputProfileGamepad) Serialize() SerializedGamepadProfile {
     return SerializedGamepadProfile{
-        GamepadID: profile.GamepadID,
+        ID: ebiten.GamepadSDLID(profile.GamepadID),
         Name: ebiten.GamepadName(profile.GamepadID),
         GreenButton: profile.GreenButton,
         RedButton: profile.RedButton,
@@ -225,3 +225,39 @@ func (profile *InputProfile) Serialize(out io.Writer) error {
     return encoder.Encode(&serialized)
 }
 
+
+func LoadInputProfile(in io.Reader) (*InputProfile, error) {
+    var serialized SerializedInputProfile
+    decoder := json.NewDecoder(in)
+    err := decoder.Decode(&serialized)
+    if err != nil {
+        return nil, err
+    }
+
+    profile := NewInputProfile()
+    profile.KeyboardProfile = &serialized.KeyboardProfile
+
+    gamepads := ebiten.AppendGamepadIDs(nil)
+    gamepadIDMap := make(map[string]ebiten.GamepadID)
+    for _, id := range gamepads {
+        sdlID := ebiten.GamepadSDLID(id)
+        gamepadIDMap[sdlID] = id
+    }
+
+    for _, serializedGamepadProfile := range serialized.GamepadProfiles {
+        gamepadID, ok := gamepadIDMap[serializedGamepadProfile.ID]
+        if ok {
+            gamepadProfile := NewInputProfileGamepad(gamepadID)
+            gamepadProfile.GreenButton = serializedGamepadProfile.GreenButton
+            gamepadProfile.RedButton = serializedGamepadProfile.RedButton
+            gamepadProfile.YellowButton = serializedGamepadProfile.YellowButton
+            gamepadProfile.BlueButton = serializedGamepadProfile.BlueButton
+            gamepadProfile.OrangeButton = serializedGamepadProfile.OrangeButton
+            gamepadProfile.StrumUpButton = serializedGamepadProfile.StrumUpButton
+            gamepadProfile.StrumDownButton = serializedGamepadProfile.StrumDownButton
+            profile.GamepadProfiles[gamepadID] = gamepadProfile
+        }
+    }
+
+    return profile, nil
+}
