@@ -543,6 +543,34 @@ func waitForGamepadInput(yield coroutine.YieldFunc, gamepadId ebiten.GamepadID, 
     return ebiten.GamepadButton(-1)
 }
 
+func makeLeftArrow(width, height int, col color.Color) *ebiten.Image {
+    out := ebiten.NewImage(width, height)
+
+    var path vector.Path
+    path.MoveTo(0, float32(height)/2)
+    path.LineTo(float32(width), 0)
+    path.LineTo(float32(width), float32(height))
+    path.Close()
+
+    vector.FillPath(out, &path, &vector.FillOptions{}, &vector.DrawPathOptions{})
+
+    return out
+}
+
+func makeRightArrow(width, height int, col color.Color) *ebiten.Image {
+    out := ebiten.NewImage(width, height)
+
+    var path vector.Path
+    path.MoveTo(float32(width), float32(height)/2)
+    path.LineTo(0, 0)
+    path.LineTo(0, float32(height))
+    path.Close()
+
+    vector.FillPath(out, &path, &vector.FillOptions{}, &vector.DrawPathOptions{})
+
+    return out
+}
+
 func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawManager, inputProfile *InputProfile) *widget.Container {
     _, textHeight := text.Measure("A", tface, 0)
 
@@ -573,6 +601,24 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
         inputs = append(inputs, ebiten.GamepadName(gamepad))
     }
 
+    // leftArrowImage := ebiten.NewImage(int(textHeight), int(textHeight))
+    // leftArrowImage.Fill(color.White)
+    leftArrowImage := makeLeftArrow(int(textHeight), int(textHeight), color.White)
+    leftArrow := widget.GraphicImage{
+        Idle: leftArrowImage,
+        Disabled: leftArrowImage,
+        Pressed: leftArrowImage,
+        Hover: leftArrowImage,
+    }
+
+    rightArrowImage := makeRightArrow(int(textHeight), int(textHeight), color.White)
+    rightArrow := widget.GraphicImage{
+        Idle: rightArrowImage,
+        Disabled: rightArrowImage,
+        Pressed: rightArrowImage,
+        Hover: rightArrowImage,
+    }
+
     var setupButtons func(inputIndex int)
     setupButtons = func(inputIndex int) {
         container.RemoveChildren()
@@ -594,15 +640,6 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
                 widget.RowLayoutOpts.Spacing(5),
             )),
         )
-
-        leftArrowImage := ebiten.NewImage(int(textHeight), int(textHeight))
-        leftArrowImage.Fill(color.White)
-        leftArrow := widget.GraphicImage{
-            Idle: leftArrowImage,
-            Disabled: leftArrowImage,
-            Pressed: leftArrowImage,
-            Hover: leftArrowImage,
-        }
 
         baseColor := color.NRGBA{R: 100, G: 160, B: 210, A: 255}
         borderColor := color.NRGBA{R: 250, G: 250, B: 250, A: 100}
@@ -641,7 +678,7 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
                 Hover: ui_image.NewBorderedNineSliceColor(translucent(baseColor, alpha), borderColor, 1),
                 Pressed: ui_image.NewBorderedNineSliceColor(translucent(brightenColor(baseColor, 0.4), alpha), borderColor, 1),
             }),
-            widget.ButtonOpts.TextAndImage("", &tface, &leftArrow, &widget.ButtonTextColor{
+            widget.ButtonOpts.TextAndImage("", &tface, &rightArrow, &widget.ButtonTextColor{
                 Idle: color.White,
                 Hover: color.White,
                 Pressed: color.White,
