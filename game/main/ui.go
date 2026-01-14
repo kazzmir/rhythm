@@ -623,6 +623,13 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
     setupButtons = func(inputIndex int) {
         container.RemoveChildren()
 
+        if inputIndex == 0 {
+            inputProfile.SetKeyboardProfile(inputProfile.KeyboardProfile)
+        } else {
+            profile := inputProfile.GetGamepadProfile(gamepads[inputIndex - 1])
+            inputProfile.SetGamepadProfile(profile)
+        }
+
         container.AddChild(widget.NewLabel(
             widget.LabelOpts.Text("Input", &tface, &widget.LabelColor{
                 Idle: color.White,

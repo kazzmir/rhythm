@@ -110,15 +110,36 @@ type InputProfileInterface interface {
 }
 */
 
+type UseProfileKind int
+const (
+    UseProfileKeyboard UseProfileKind = iota
+    UseProfileGamepad
+)
+
 type InputProfile struct {
-    KeyboardProfile InputProfileKeyboard
+    KeyboardProfile *InputProfileKeyboard
     GamepadProfiles map[ebiten.GamepadID]*InputProfileGamepad
+
+    CurrentProfile UseProfileKind
+    CurrentGamepadProfile *InputProfileGamepad
 }
 
 func NewInputProfile() *InputProfile {
     return &InputProfile{
+        KeyboardProfile: &InputProfileKeyboard{},
         GamepadProfiles: make(map[ebiten.GamepadID]*InputProfileGamepad),
+        CurrentProfile: UseProfileKeyboard,
     }
+}
+
+func (profile *InputProfile) SetKeyboardProfile(keyboardProfile *InputProfileKeyboard) {
+    profile.KeyboardProfile = keyboardProfile
+    profile.CurrentProfile = UseProfileKeyboard
+}
+
+func (profile *InputProfile) SetGamepadProfile(gamepadProfile *InputProfileGamepad) {
+    profile.CurrentGamepadProfile = gamepadProfile
+    profile.CurrentProfile = UseProfileGamepad
 }
 
 func (profile *InputProfile) GetGamepadProfile(id ebiten.GamepadID) *InputProfileGamepad {
