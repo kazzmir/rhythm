@@ -1,9 +1,24 @@
 package main
 
 import (
+    "io"
+    "encoding/json"
+
     "github.com/hajimehoshi/ebiten/v2"
     "github.com/hajimehoshi/ebiten/v2/inpututil"
 )
+
+type SerializedGamepadProfile struct {
+    GamepadID ebiten.GamepadID `json:"gamepad_id"`
+    Name string `json:"name"`
+    GreenButton ebiten.GamepadButton `json:"green_button"`
+    RedButton ebiten.GamepadButton `json:"red_button"`
+    YellowButton ebiten.GamepadButton `json:"yellow_button"`
+    BlueButton ebiten.GamepadButton `json:"blue_button"`
+    OrangeButton ebiten.GamepadButton `json:"orange_button"`
+    StrumUpButton ebiten.GamepadButton `json:"strum_up_button"`
+    StrumDownButton ebiten.GamepadButton `json:"strum_down_button"`
+}
 
 type InputProfileGamepad struct {
     GamepadID ebiten.GamepadID
@@ -27,6 +42,20 @@ func NewInputProfileGamepad(id ebiten.GamepadID) *InputProfileGamepad {
         OrangeButton: ebiten.GamepadButton(-1),
         StrumUpButton: ebiten.GamepadButton(-1),
         StrumDownButton: ebiten.GamepadButton(-1),
+    }
+}
+
+func (profile *InputProfileGamepad) Serialize() SerializedGamepadProfile {
+    return SerializedGamepadProfile{
+        GamepadID: profile.GamepadID,
+        Name: ebiten.GamepadName(profile.GamepadID),
+        GreenButton: profile.GreenButton,
+        RedButton: profile.RedButton,
+        YellowButton: profile.YellowButton,
+        BlueButton: profile.BlueButton,
+        OrangeButton: profile.OrangeButton,
+        StrumUpButton: profile.StrumUpButton,
+        StrumDownButton: profile.StrumDownButton,
     }
 }
 
@@ -57,13 +86,13 @@ func (profile *InputProfileGamepad) GetInput(kind InputAction) ebiten.GamepadBut
 }
 
 type InputProfileKeyboard struct {
-    GreenButton ebiten.Key
-    RedButton ebiten.Key
-    YellowButton ebiten.Key
-    BlueButton ebiten.Key
-    OrangeButton ebiten.Key
-    StrumUpButton ebiten.Key
-    StrumDownButton ebiten.Key
+    GreenButton ebiten.Key `json:"green_button"`
+    RedButton ebiten.Key `json:"red_button"`
+    YellowButton ebiten.Key `json:"yellow_button"`
+    BlueButton ebiten.Key `json:"blue_button"`
+    OrangeButton ebiten.Key `json:"orange_button"`
+    StrumUpButton ebiten.Key `json:"strum_up_button"`
+    StrumDownButton ebiten.Key `json:"strum_down_button"`
 }
 
 func (profile *InputProfileKeyboard) SetInput(kind InputAction, key ebiten.Key) {
@@ -175,6 +204,24 @@ func (profile *InputProfile) IsJustReleased(action InputAction) bool {
     }
 
     return false
+}
 
+type SerializedInputProfile struct {
+    KeyboardProfile InputProfileKeyboard `json:"keyboard_profile"`
+    GamepadProfiles []SerializedGamepadProfile `json:"gamepad_profiles"`
+}
+
+func (profile *InputProfile) Serialize(out io.Writer) error {
+    serialized := SerializedInputProfile{
+        KeyboardProfile: *profile.KeyboardProfile,
+        GamepadProfiles: make([]SerializedGamepadProfile, 0),
+    }
+
+    for _, gamepadProfile := range profile.GamepadProfiles {
+        serialized.GamepadProfiles = append(serialized.GamepadProfiles, gamepadProfile.Serialize())
+    }
+
+    encoder := json.NewEncoder(out)
+    return encoder.Encode(&serialized)
 }
 

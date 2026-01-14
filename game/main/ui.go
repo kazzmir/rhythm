@@ -643,7 +643,7 @@ func makeRightArrow(width, height int, col color.Color) *ebiten.Image {
     return out
 }
 
-func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawManager, inputProfile *InputProfile) *widget.Container {
+func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawManager, inputProfile *InputProfile, configuration *ConfigurationManager) *widget.Container {
     _, textHeight := text.Measure("A", tface, 0)
 
     container := widget.NewContainer(
@@ -821,6 +821,8 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
                     key := waitForKeyboardInput(yield, tface, drawManager)
                     button.SetText(key.String())
                     inputProfile.KeyboardProfile.SetInput(inputName, key)
+
+                    configuration.SaveConfiguration(inputProfile.Serialize)
                 })
 
                 container.AddChild(button)
@@ -831,10 +833,12 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
                 var button *widget.Button
                 button = makeButton(fmt.Sprintf("Button %v", profile.GetInput(inputName)), tface, 200, func (args *widget.ButtonClickedEventArgs) {
                     var gamepadId ebiten.GamepadID
-                        input := waitForGamepadInput(yield, gamepadId, tface, drawManager)
-                        // TODO: check if input is in use already
-                        button.SetText(fmt.Sprintf("Button %v", input))
-                        profile.SetInput(inputName, input)
+                    input := waitForGamepadInput(yield, gamepadId, tface, drawManager)
+                    // TODO: check if input is in use already
+                    button.SetText(fmt.Sprintf("Button %v", input))
+                    profile.SetInput(inputName, input)
+
+                    configuration.SaveConfiguration(inputProfile.Serialize)
                 })
                 container.AddChild(button)
             }
@@ -846,7 +850,7 @@ func makeInputMenu(yield coroutine.YieldFunc, tface text.Face, drawManager DrawM
     return container
 }
 
-func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace, inputProfile *InputProfile) {
+func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Background, face *text.GoTextFace, inputProfile *InputProfile, configuration *ConfigurationManager) {
     quit := false
 
     var tface text.Face = face
@@ -895,7 +899,7 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
     }))
 
     rootContainer.AddChild(makeButton(fmt.Sprintf("Configure input/joystick"), tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
-        ui.Container = makeInputMenu(yield, tface, engine, inputProfile)
+        ui.Container = makeInputMenu(yield, tface, engine, inputProfile, configuration)
     }))
 
     rootContainer.AddChild(makeButton("Back", tface, maxButtonWidth, func (args *widget.ButtonClickedEventArgs) {
@@ -904,7 +908,7 @@ func doSettingsMenu(yield coroutine.YieldFunc, engine *Engine, background *Backg
 
     ui.Container = rootContainer
 
-    ui.Container = makeInputMenu(yield, tface, engine, inputProfile)
+    ui.Container = makeInputMenu(yield, tface, engine, inputProfile, configuration)
 
     engine.PushDrawer(func(screen *ebiten.Image) {
         background.Draw(screen)
@@ -1085,10 +1089,10 @@ func mainMenu(engine *Engine, yield coroutine.YieldFunc) error {
     rootContainer.AddChild(selectButton)
 
     rootContainer.AddChild(makeButton("Settings", tface, 200, func (args *widget.ButtonClickedEventArgs) {
-        doSettingsMenu(yield, engine, background, face, inputProfile)
+        doSettingsMenu(yield, engine, background, face, inputProfile, engine.Configuration)
     }))
 
-    doSettingsMenu(yield, engine, background, face, inputProfile)
+    doSettingsMenu(yield, engine, background, face, inputProfile, engine.Configuration)
 
     rootContainer.AddChild(makeButton("Quit", tface, 200, func (args *widget.ButtonClickedEventArgs) {
         quit = true

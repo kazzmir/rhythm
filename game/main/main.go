@@ -41,6 +41,23 @@ import (
 const ScreenWidth = 1400
 const ScreenHeight = 1000
 
+type ConfigurationManager struct {
+}
+
+func (config *ConfigurationManager) SaveConfiguration(doSave func (io.Writer) error) error {
+    file, err := os.Create("config.json")
+    if err != nil {
+        return err
+    }
+
+    defer file.Close()
+
+    buffer := bufio.NewWriter(file)
+    defer buffer.Flush()
+
+    return doSave(buffer)
+}
+
 const NoteThresholdHigh = time.Millisecond * 250
 const NoteThresholdLow = -time.Millisecond * 150
 
@@ -726,11 +743,10 @@ type Engine struct {
 
     Drawers []func(screen *ebiten.Image)
 
-    Input *Input
-
     Coroutine *coroutine.Coroutine
+    Configuration *ConfigurationManager
 
-    GamepadIds map[ebiten.GamepadID]struct{}
+    // GamepadIds map[ebiten.GamepadID]struct{}
 
     // GuitarButtonMesh *tetra3d.Mesh
 }
@@ -817,8 +833,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
     engine = &Engine{
         AudioContext: audioContext,
         Font: font,
-        GamepadIds: make(map[ebiten.GamepadID]struct{}),
-        Input: MakeDefaultInput(),
+        // GamepadIds: make(map[ebiten.GamepadID]struct{}),
         Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
             if songDirectory != "" {
                 err := playSong(yield, engine, songDirectory, DefaultSongSettings(), NewInputProfile())
@@ -827,6 +842,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
 
             return mainMenu(engine, yield)
         }),
+        Configuration: &ConfigurationManager{},
         // GuitarButtonMesh: tetra3d.NewCylinderMesh(2, 40, 50, false),
     }
 
@@ -877,6 +893,7 @@ func (engine *Engine) Update() error {
         }
     }
 
+    /*
     newGamepadIDs := inpututil.AppendJustConnectedGamepadIDs(nil)
     for _, id := range newGamepadIDs {
         log.Printf("Gamepad connected: %v '%s'", id, ebiten.GamepadName(id))
@@ -897,11 +914,13 @@ func (engine *Engine) Update() error {
             }
         }
     }
+
     for id := range engine.GamepadIds {
         if inpututil.IsGamepadJustDisconnected(id) {
             delete(engine.GamepadIds, id)
         }
     }
+    */
 
     if ebiten.IsWindowBeingClosed() {
         engine.Coroutine.Stop()
