@@ -1537,7 +1537,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     orangeMesh := makeMesh(fretColor(4))
 
     // neckMesh := make3dRectangle(70, 5, 300, tetra3d.NewColor(1, 1, 1, 1))
-    neckMesh := makePlane(70, 350, tetra3d.NewColor(1, 1, 1, 1))
+    neckMesh := makePlane(70, 400, tetra3d.NewColor(1, 1, 1, 1))
     neckModel := tetra3d.NewModel("Neck", neckMesh)
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
     neckModel.Move(0, -2, 20)
@@ -1545,6 +1545,13 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
     guitarSkin := loadSkin()
     neckMesh.MeshPartByMaterialName("Top").Material.Texture = guitarSkin
+
+    for fretI := range song.Frets {
+        fretLine := makePlane(1, 400, tetra3d.NewColor(0.7, 0.7, 0.7, 0.7))
+        fretModel := tetra3d.NewModel("Fret", fretLine)
+        fretModel.Move(float32((fretI - 2) * 10), 1, 0)
+        neckModel.AddChildren(fretModel)
+    }
 
     particleManager := NewParticleManager(scene)
 
@@ -1566,7 +1573,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
         scene.Root.AddChildren(button)
     }
 
-    lookPosition := tetra3d.NewVector3(0, 2, -30)
+    lookPosition := tetra3d.NewVector3(0, 5, -60)
 
     camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
     camera.PerspectiveCorrectedTextureMapping = true
@@ -1574,7 +1581,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     // camera := tetra3d.NewCamera(300, 300)
     camera.SetFieldOfView(90)
     // camera.SetLocalPosition(0, 10, 500)
-    camera.Move(0, 30, 30)
+    camera.Move(0, 40, 40)
     camera.RenderDepth = true
     // camera.DepthMargin = 0.10
     // camera.RenderNormals = true
