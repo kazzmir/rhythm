@@ -757,6 +757,7 @@ type Engine struct {
     AudioContext *audio.Context
     // CurrentSong *Song
     Font *text.GoTextFaceSource
+    Ticks int
 
     Drawers []func(screen *ebiten.Image)
 
@@ -839,7 +840,7 @@ func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
     return songPlayer, time.Duration(length) * time.Second, func(){}, nil
 }
 
-func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, error) {
+func MakeEngine(audioContext *audio.Context, songDirectory string, ticks int) (*Engine, error) {
     font, err := LoadFont()
     if err != nil {
         return nil, fmt.Errorf("Failed to load font: %v", err)
@@ -850,6 +851,7 @@ func MakeEngine(audioContext *audio.Context, songDirectory string) (*Engine, err
     engine = &Engine{
         AudioContext: audioContext,
         Font: font,
+        Ticks: ticks,
         // GamepadIds: make(map[ebiten.GamepadID]struct{}),
         Coroutine: coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
             if songDirectory != "" {
@@ -1401,7 +1403,7 @@ func (manager *ParticleManager) MakeFlame(fret int) {
 }
 
 func (manager *ParticleManager) Update() {
-    var particles []*Particle
+    particles := make([]*Particle, 0, len(manager.Particles))
 
     for _, particle := range manager.Particles {
         particle.Life += 1
@@ -1687,67 +1689,71 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
         song.Update(input, particleManager)
 
-        var notesOut []NoteModel
-
         // log.Printf("Notes: %v", len(notes))
-        for _, noteModel := range notes {
-            if (noteModel.Note.State == NoteStateHit && !noteModel.Note.HasSustain()) || noteModel.Note.End - delta < -time.Second * 1 {
-                scene.Root.RemoveChildren(noteModel.Model)
-            } else {
+        if counter % 2 == 0 {
+            notesOut := make([]NoteModel, 0, len(notes))
 
-                if noteModel.Note.State == NoteStateHit && noteModel.Note.HasSustain() {
-                    noteModel.Model.Color.A = 0
-
-                    z := min(1, max(0, float32(noteModel.Note.End - delta) / float32(noteModel.Note.End - noteModel.Note.Start)))
-
-                    noteModel.SustainModel.SetLocalScale(1, 1, z)
-                    position := noteModel.Model.WorldPosition()
-                    noteModel.Model.SetWorldPosition(position.X, position.Y, 0)
+            for _, noteModel := range notes {
+                if (noteModel.Note.State == NoteStateHit && !noteModel.Note.HasSustain()) || noteModel.Note.End - delta < -time.Second * 1 {
+                    scene.Root.RemoveChildren(noteModel.Model)
                 } else {
-                    elapsed := noteModel.Note.Start - delta
 
-                    position := noteModel.Model.WorldPosition()
-                    x := position.X
-                    y := position.Y
+                    if noteModel.Note.State == NoteStateHit && noteModel.Note.HasSustain() {
+                        noteModel.Model.Color.A = 0
 
-                    alpha := float32(1.0)
-                    if elapsed > 0 {
-                        alpha = min(1, float32(time.Second * 2) / float32(elapsed))
+                        z := min(1, max(0, float32(noteModel.Note.End - delta) / float32(noteModel.Note.End - noteModel.Note.Start)))
+
+                        noteModel.SustainModel.SetLocalScale(1, 1, z)
+                        position := noteModel.Model.WorldPosition()
+                        noteModel.Model.SetWorldPosition(position.X, position.Y, 0)
+                    } else {
+                        elapsed := noteModel.Note.Start - delta
+
+                        position := noteModel.Model.WorldPosition()
+                        x := position.X
+                        y := position.Y
+
+                        alpha := float32(1.0)
+                        if elapsed > 0 {
+                            alpha = min(1, float32(time.Second * 2) / float32(elapsed))
+                        }
+
+                        noteModel.Model.Color.A = alpha
+
+                        noteModel.Model.SetWorldPosition(x, y, timeToZ(-elapsed))
                     }
 
-                    noteModel.Model.Color.A = alpha
-
-                    noteModel.Model.SetWorldPosition(x, y, timeToZ(-elapsed))
+                    notesOut = append(notesOut, noteModel)
                 }
 
-                notesOut = append(notesOut, noteModel)
+                // noteModel.Move(0, 0, 0.2)
             }
 
-            // noteModel.Move(0, 0, 0.2)
-        }
+            notes = notesOut
 
-        notes = notesOut
+            // model.SetLocalRotation(model.LocalRotation().Rotated(0.5, 0.2, 0.5, 0.02))
 
-        // model.SetLocalRotation(model.LocalRotation().Rotated(0.5, 0.2, 0.5, 0.02))
-
-        particleManager.Update()
-
-        for i := range song.Frets {
-            fret := &song.Frets[i]
-            var button *tetra3d.Model
-            switch i {
-                case 0: button = redButton
-                case 1: button = greenButton
-                case 2: button = yellowButton
-                case 3: button = blueButton
-                case 4: button = orangeButton
+            for range 2 {
+                particleManager.Update()
             }
-            if !fret.Press.IsZero() {
-                button.Color.A = min(1, button.Color.A + 0.06)
-                button.SetLocalScale(1, 1, 1)
-            } else {
-                button.Color.A = max(0.3, button.Color.A - 0.01)
-                button.SetLocalScale(1, 0.3, 1)
+
+            for i := range song.Frets {
+                fret := &song.Frets[i]
+                var button *tetra3d.Model
+                switch i {
+                    case 0: button = redButton
+                    case 1: button = greenButton
+                    case 2: button = yellowButton
+                    case 3: button = blueButton
+                    case 4: button = orangeButton
+                }
+                if !fret.Press.IsZero() {
+                    button.Color.A = min(1, button.Color.A + 0.06)
+                    button.SetLocalScale(1, 1, 1)
+                } else {
+                    button.Color.A = max(0.3, button.Color.A - 0.01)
+                    button.SetLocalScale(1, 0.3, 1)
+                }
             }
         }
 
@@ -2034,14 +2040,17 @@ func main() {
 
     log.Printf("Initializing")
 
-    ebiten.SetTPS(120)
+    // run the engine at a higher rate to catch more input
+    ticks := 120
+
+    ebiten.SetTPS(ticks)
     ebiten.SetWindowSize(ScreenWidth, ScreenHeight)
     ebiten.SetWindowTitle("Rhythm Game")
     ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
     audioContext := audio.NewContext(44100)
 
-    engine, err := MakeEngine(audioContext, path)
+    engine, err := MakeEngine(audioContext, path, ticks)
 
     if err != nil {
         log.Fatalf("Failed to make engine: %v", err)
