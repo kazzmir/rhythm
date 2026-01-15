@@ -500,6 +500,41 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
 }
 
 func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Duration, func(), error) {
+    type Loader struct {
+        Name string
+        LoadFunc func(*audio.Context, fs.File, string) (*audio.Player, time.Duration, func(), error)
+    }
+
+    loaders := []Loader{
+        Loader{
+            Name: "song.ogg",
+            LoadFunc: loadOgg,
+        },
+        Loader{
+            Name: "song.mp3",
+            LoadFunc: loadMp3,
+        },
+    }
+
+    for _, loader := range loaders {
+        songFile, err := findFile(basefs, loader.Name)
+        if err == nil {
+            defer songFile.Close()
+
+            var cleanup func()
+
+            songPlayer, songLength, cleanup, err := loader.LoadFunc(audioContext, songFile, loader.Name)
+            if err != nil {
+                return nil, 0, nil, fmt.Errorf("Unable to create audio player for file '%v': %v", loader.Name, err)
+            }
+
+            return songPlayer, songLength, cleanup, nil
+        }
+    }
+
+    return nil, 0, nil, fmt.Errorf("Unable to find song.ogg or song.mp3 in song directory")
+
+    /*
     songFile, err := findFile(basefs, "song.ogg")
     if err == nil {
         defer songFile.Close()
@@ -528,6 +563,7 @@ func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Du
             return nil, 0, nil, fmt.Errorf("Unable to find song.ogg or song.mp3 in song directory: %v", err)
         }
     }
+    */
 }
 
 func loadGuitarSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
