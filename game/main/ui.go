@@ -159,11 +159,11 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
                         return
                 }
 
-                songPlayer, _, _, err := loadSong(engine.AudioContext, os.DirFS(song))
+                songPlayer, _, cleanupSong, err := loadSong(engine.AudioContext, os.DirFS(song))
                 if err != nil {
                     return
                 }
-                guitarPlayer, _, err := loadGuitarSong(engine.AudioContext, os.DirFS(song))
+                guitarPlayer, cleanupGuitar, err := loadGuitarSong(engine.AudioContext, os.DirFS(song))
                 if err != nil {
                     return
                 }
@@ -175,6 +175,9 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
                     case <-localQuit.Done():
                         songPlayer.Pause()
                         guitarPlayer.Pause()
+
+                        cleanupSong()
+                        cleanupGuitar()
                 }
 
             }()
