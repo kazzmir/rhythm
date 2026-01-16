@@ -201,7 +201,9 @@ func (song *Song) TotalNotes() int {
 
 func (song *Song) Close() {
     song.Song.Pause()
+    song.Song.Close()
     song.Guitar.Pause()
+    song.Guitar.Close()
 
     for _, cleanup := range song.CleanupFuncs {
         cleanup()
@@ -1686,18 +1688,20 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     blueMesh := makeMesh(fretColor(3))
     orangeMesh := makeMesh(fretColor(4))
 
+    neckLength := 800
+
     // neckMesh := make3dRectangle(70, 5, 300, tetra3d.NewColor(1, 1, 1, 1))
-    neckMesh := makePlane(70, 400, tetra3d.NewColor(1, 1, 1, 1))
+    neckMesh := makePlane(70, neckLength, tetra3d.NewColor(1, 1, 1, 1))
     neckModel := tetra3d.NewModel("Neck", neckMesh)
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
-    neckModel.Move(0, -2, 20)
+    neckModel.Move(0, -2, 50)
     scene.Root.AddChildren(neckModel)
 
     guitarSkin := loadSkin()
     neckMesh.MeshPartByMaterialName("Top").Material.Texture = guitarSkin
 
     for fretI := range song.Frets {
-        fretLine := makePlane(1, 400, tetra3d.NewColor(0.7, 0.7, 0.7, 0.7))
+        fretLine := makePlane(1, neckLength, tetra3d.NewColor(0.7, 0.7, 0.7, 0.7))
         fretModel := tetra3d.NewModel("Fret", fretLine)
         fretModel.Move(float32((fretI - 2) * 10), 1, 0)
         neckModel.AddChildren(fretModel)
@@ -1727,11 +1731,11 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
     camera := tetra3d.NewCamera(ScreenWidth, ScreenHeight)
     camera.PerspectiveCorrectedTextureMapping = true
-    camera.SetFar(310)
+    camera.SetFar(800)
     // camera := tetra3d.NewCamera(300, 300)
-    camera.SetFieldOfView(90)
+    camera.SetFieldOfView(30)
     // camera.SetLocalPosition(0, 10, 500)
-    camera.Move(0, 40, 40)
+    camera.Move(0, 55, 145)
     camera.RenderDepth = true
     // camera.DepthMargin = 0.10
     // camera.RenderNormals = true
@@ -1769,7 +1773,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
             if note.HasSustain() {
                 // sustainMesh := make3dRectangle(4, 0.1, timeToZ(note.End - note.Start), fretColor(fretI))
-                sustainMesh := makePlane(4, int(timeToZ(note.End - note.Start)), fretColor(fretI))
+                sustainMesh := makePlane(3, int(timeToZ(note.End - note.Start)), fretColor(fretI))
                 sustainModel := tetra3d.NewModel("Sustain", sustainMesh)
                 sustainModel.Color = tetra3d.NewColor(1, 1, 1, 1)
                 sustainModel.Move(0, 2, 0)
@@ -1834,6 +1838,15 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
                 case ebiten.KeyX:
                     move = tetra3d.NewVector3(0, 0, 1)
                     moved = true
+
+                case ebiten.KeyE:
+                    if camera.FieldOfView() < 179 {
+                        camera.SetFieldOfView(camera.FieldOfView() + 1)
+                    }
+                case ebiten.KeyR:
+                    if camera.FieldOfView() > 1 {
+                        camera.SetFieldOfView(camera.FieldOfView() - 1)
+                    }
             }
         }
 
@@ -1872,7 +1885,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
                         alpha := float32(1.0)
                         if elapsed > 0 {
-                            alpha = min(1, float32(time.Second * 2) / float32(elapsed))
+                            alpha = min(1, float32(time.Second * 6) / float32(elapsed))
                         }
 
                         noteModel.Model.Color.A = alpha
@@ -2153,7 +2166,7 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
 
     textOptions.GeoM.Translate(0, 20)
     position := camera.WorldPosition()
-    text.Draw(screen, fmt.Sprintf("Camera: X: %v Y: %v Z: %v", position.X, position.Y, position.Z), face, &textOptions)
+    text.Draw(screen, fmt.Sprintf("Camera: X: %v Y: %v Z: %v Fov: %v", position.X, position.Y, position.Z, camera.FieldOfView()), face, &textOptions)
 
     if delta < time.Second * 2 && song.SongInfo.Name != "" {
         textOptions.GeoM.Translate(0, 20)
