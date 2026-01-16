@@ -1694,7 +1694,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     neckMesh := makePlane(70, neckLength, tetra3d.NewColor(1, 1, 1, 1))
     neckModel := tetra3d.NewModel("Neck", neckMesh)
     neckModel.Color = tetra3d.NewColor(1, 1, 1, 1)
-    neckModel.Move(0, -2, 100)
+    neckModel.Move(0, -2, 50)
     scene.Root.AddChildren(neckModel)
 
     guitarSkin := loadSkin()
@@ -1735,7 +1735,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
     // camera := tetra3d.NewCamera(300, 300)
     camera.SetFieldOfView(30)
     // camera.SetLocalPosition(0, 10, 500)
-    camera.Move(0, 55, 200)
+    camera.Move(0, 55, 145)
     camera.RenderDepth = true
     // camera.DepthMargin = 0.10
     // camera.RenderNormals = true
@@ -1773,7 +1773,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
             if note.HasSustain() {
                 // sustainMesh := make3dRectangle(4, 0.1, timeToZ(note.End - note.Start), fretColor(fretI))
-                sustainMesh := makePlane(4, int(timeToZ(note.End - note.Start)), fretColor(fretI))
+                sustainMesh := makePlane(3, int(timeToZ(note.End - note.Start)), fretColor(fretI))
                 sustainModel := tetra3d.NewModel("Sustain", sustainMesh)
                 sustainModel.Color = tetra3d.NewColor(1, 1, 1, 1)
                 sustainModel.Move(0, 2, 0)
@@ -1885,7 +1885,7 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 
                         alpha := float32(1.0)
                         if elapsed > 0 {
-                            alpha = min(1, float32(time.Second * 2) / float32(elapsed))
+                            alpha = min(1, float32(time.Second * 6) / float32(elapsed))
                         }
 
                         noteModel.Model.Color.A = alpha
