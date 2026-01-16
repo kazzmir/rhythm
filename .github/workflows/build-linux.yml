@@ -16,7 +16,7 @@ jobs:
       - name: Install ubuntu dependencies
         run: |
           sudo apt-get -y update
-          sudo apt-get -y install libasound2-dev xorg-dev
+          sudo apt-get -y install libasound2-dev xorg-dev libogg-dev
           # for running the tests
           # sudo apt-get -y install xvfb
 
