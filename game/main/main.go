@@ -35,9 +35,6 @@ import (
     // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 
-    // "github.com/pion/opus"
-    // "github.com/pion/opus/pkg/oggreader"
-
     "github.com/pekim/opus"
 
     "github.com/solarlune/tetra3d"
@@ -915,6 +912,8 @@ type opusWrapper struct {
 }
 
 func (wrapper *opusWrapper) Read(p []byte) (int, error) {
+    // we have len(p) bytes to fill up, which is len(p)/2 int16 samples
+    // we are going to produce stereo audio, so the number of samples read per channel will be len(p)/4
     if len(wrapper.buffer) < len(p)/2 {
         wrapper.buffer = make([]int16, len(p)/2)
     } else {
@@ -950,16 +949,6 @@ func loadOpus(audioContext *audio.Context, file fs.File, name string) (*audio.Pl
         return nil, 0, nil, err
     }
 
-    // log.Printf("Opus file '%s' %+v", name, header)
-
-    /*
-    decoder := opus.NewDecoder()
-    _ = reader
-    _ = decoder
-    */
-
-    // songReader := NewOpusReader(reader, header, audioContext.SampleRate())
-
     wrapper := &opusWrapper{reader: reader}
 
     player, err := audioContext.NewPlayer(audio.ResampleReader(wrapper, int64(reader.Len()), 48000, audioContext.SampleRate()))
@@ -969,18 +958,10 @@ func loadOpus(audioContext *audio.Context, file fs.File, name string) (*audio.Pl
     }
 
     cleanup := func() {
-        log.Printf("Destroying Opus reader for file '%s'", name)
         reader.Destroy()
     }
 
     return player, reader.Duration(), cleanup, nil
-
-    // return nil, 0, nil, fmt.Errorf("Opus loading not yet implemented")
-
-    /*
-    songReader := NewOpusReader(allData)
-    length := songReader.Length() / 2 / 2 / int64(
-        */
 }
 
 func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
