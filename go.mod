@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/ebitenui/ebitenui v0.7.2
 	github.com/hajimehoshi/ebiten/v2 v2.9.7
-	github.com/pekim/opus v0.0.0-20240310090728-3f1075ec68e8
+	github.com/kazzmir/opus v0.0.0-20260116054729-f83885b06ec6
 	github.com/solarlune/tetra3d v0.17.1
 	gitlab.com/gomidi/midi/v2 v2.3.18
 )
@@ -29,6 +29,6 @@ require (
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/image v0.31.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/text v0.33.0 // indirect
 )

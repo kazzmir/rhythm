@@ -35,7 +35,7 @@ import (
     // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 
-    "github.com/pekim/opus"
+    "github.com/kazzmir/opus"
 
     "github.com/solarlune/tetra3d"
 )
