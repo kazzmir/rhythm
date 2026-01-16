@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/ebitenui/ebitenui v0.7.2
 	github.com/hajimehoshi/ebiten/v2 v2.9.7
+	github.com/kazzmir/opus v0.0.0-20260116065336-37841ac80874
 	github.com/solarlune/tetra3d v0.17.1
 	gitlab.com/gomidi/midi/v2 v2.3.18
 )
@@ -20,12 +21,14 @@ require (
 	github.com/jezek/xgb v1.2.0 // indirect
 	github.com/jfreymuth/oggvorbis v1.0.5 // indirect
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/qmuntal/gltf v0.27.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tanema/gween v0.0.0-20221212145351-621cc8a459d1 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/image v0.31.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/text v0.33.0 // indirect
 )

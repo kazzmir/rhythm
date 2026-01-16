@@ -35,6 +35,8 @@ import (
     // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 
+    "github.com/kazzmir/opus"
+
     "github.com/solarlune/tetra3d"
 )
 
@@ -499,38 +501,55 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
     return foundFile, nil
 }
 
-func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Duration, func(), error) {
-    songFile, err := findFile(basefs, "song.ogg")
-    if err == nil {
-        defer songFile.Close()
+func loadAudio(audioContext *audio.Context, basefs fs.FS, baseName string) (*audio.Player, time.Duration, func(), error) {
+    type Loader struct {
+        Name string
+        LoadFunc func(*audio.Context, fs.File, string) (*audio.Player, time.Duration, func(), error)
+    }
 
-        var cleanup func()
+    loaders := []Loader{
+        Loader{
+            Name: fmt.Sprintf("%v.ogg", baseName),
+            LoadFunc: loadOgg,
+        },
+        Loader{
+            Name: fmt.Sprintf("%v.mp3", baseName),
+            LoadFunc: loadMp3,
+        },
+        Loader{
+            Name: fmt.Sprintf("%v.opus", baseName),
+            LoadFunc: loadOpus,
+        },
+    }
 
-        songPlayer, songLength, cleanup, err := loadOgg(audioContext, songFile, "song.ogg")
-        if err != nil {
-            return nil, 0, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.ogg", err)
-        }
-
-        return songPlayer, songLength, cleanup, nil
-    } else {
-        songFile, err = findFile(basefs, "song.mp3")
+    for _, loader := range loaders {
+        songFile, err := findFile(basefs, loader.Name)
         if err == nil {
             defer songFile.Close()
 
             var cleanup func()
-            songPlayer, songLength, cleanup, err := loadMp3(audioContext, songFile, "song.mp3")
+
+            songPlayer, songLength, cleanup, err := loader.LoadFunc(audioContext, songFile, loader.Name)
             if err != nil {
-                return nil, 0, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "song.mp3", err)
+                return nil, 0, nil, fmt.Errorf("Unable to create audio player for file '%v': %v", loader.Name, err)
             }
 
             return songPlayer, songLength, cleanup, nil
-        } else {
-            return nil, 0, nil, fmt.Errorf("Unable to find song.ogg or song.mp3 in song directory: %v", err)
         }
     }
+
+    return nil, 0, nil, fmt.Errorf("Unable to find song.ogg or song.mp3 in song directory")
+}
+
+func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Duration, func(), error) {
+    return loadAudio(audioContext, basefs, "song")
 }
 
 func loadGuitarSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
+    player, _, cleanup, err := loadAudio(audioContext, basefs, "guitar")
+    return player, cleanup, err
+
+    /*
     guitarFile, err := findFile(basefs, "guitar.ogg")
     if err == nil {
         defer guitarFile.Close()
@@ -554,6 +573,7 @@ func loadGuitarSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, f
             return nil, nil, fmt.Errorf("Unable to find guitar.ogg in song directory: %v", err)
         }
     }
+    */
 }
 
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
@@ -812,6 +832,136 @@ func loadMp3(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
     log.Printf("Loaded MP3 file '%s' length %d", name, len(allData))
 
     return songPlayer, time.Duration(length) * time.Second, func(){}, nil
+}
+
+/*
+type OpusReader struct {
+    decodeBufferOffset uint64
+    segmentBuffer [][]byte
+    oggFile *oggreader.OggReader
+    opusDecoder *opus.Decoder
+    decodeBuffer []byte
+}
+
+func NewOpusReader(oggReader *oggreader.OggReader, header *oggreader.OggHeader, sampleRate int) *OpusReader {
+    opusDecoder := opus.NewDecoder()
+
+    // skip first 3 pages
+    / *
+    for range 3 {
+        oggReader.ParseNextPage()
+    }
+    * /
+
+    return &OpusReader{
+        oggFile: oggReader,
+        opusDecoder: &opusDecoder,
+        decodeBuffer: make([]byte, sampleRate * 2 * 2), // 1 second buffer (stereo, 16-bit)
+    }
+}
+
+func (opusReader *OpusReader) Read(p []byte) (n int, err error) {
+    if opusReader.decodeBufferOffset == 0 || opusReader.decodeBufferOffset >= uint64(len(opusReader.decodeBuffer)) {
+		if len(opusReader.segmentBuffer) == 0 {
+			for {
+                log.Printf("Reading next Opus page")
+				opusReader.segmentBuffer, _, err = opusReader.oggFile.ParseNextPage()
+				if err != nil {
+					return 0, err
+				} else if bytes.HasPrefix(opusReader.segmentBuffer[0], []byte("OpusTags")) {
+                    log.Printf("Skipping OpusTags segment")
+
+                    log.Printf("Remaining segments: %d", len(opusReader.segmentBuffer))
+                    for i, segment := range opusReader.segmentBuffer {
+                        log.Printf("  Segment %d size: %d", i, len(segment))
+                        log.Printf("    Data: %v", string(segment))
+                    }
+
+					continue
+				}
+
+				break
+			}
+		}
+
+        log.Printf("Decoding next Opus segment, %d segments left", len(opusReader.segmentBuffer))
+        for i, segment := range opusReader.segmentBuffer {
+            log.Printf("  Segment %d size: %d", i, len(segment))
+        }
+		var segment []byte
+		segment, opusReader.segmentBuffer = opusReader.segmentBuffer[0], opusReader.segmentBuffer[1:]
+
+        log.Printf("Segment: %v", segment)
+
+		opusReader.decodeBufferOffset = 0
+        log.Printf("Decoding Opus segment of size %d", len(segment))
+		if _, _, err = opusReader.opusDecoder.Decode(segment, opusReader.decodeBuffer); err != nil {
+            return 0, fmt.Errorf("opus decode error: %v", err)
+		}
+	}
+
+	n = copy(p, opusReader.decodeBuffer[opusReader.decodeBufferOffset:])
+	opusReader.decodeBufferOffset += uint64(n)
+	return n, nil
+}
+*/
+
+type opusWrapper struct {
+    reader *opus.Decoder
+    buffer []int16
+}
+
+func (wrapper *opusWrapper) Read(p []byte) (int, error) {
+    // we have len(p) bytes to fill up, which is len(p)/2 int16 samples
+    // we are going to produce stereo audio, so the number of samples read per channel will be len(p)/4
+    if len(wrapper.buffer) < len(p)/2 {
+        wrapper.buffer = make([]int16, len(p)/2)
+    } else {
+        wrapper.buffer = wrapper.buffer[:len(p)/2:len(p)/2]
+    }
+
+    atMost := len(p) / 4
+
+    n, err := wrapper.reader.Read(wrapper.buffer[:atMost])
+    if err != nil {
+        return 0, err
+    }
+
+    // log.Printf("n=%v p=%v buffer=%v", n, len(p), len(wrapper.buffer))
+
+    for i := range n * 2 {
+        sample := wrapper.buffer[i]
+        p[i*2] = byte(sample)
+        p[i*2+1] = byte(sample >> 8)
+    }
+
+    return n * 4, nil
+}
+
+func loadOpus(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
+    allData, err := io.ReadAll(bufio.NewReader(file))
+    if err != nil {
+        return nil, 0, nil, err
+    }
+
+    reader, err := opus.NewDecoder(bytes.NewReader(allData))
+    if err != nil {
+        return nil, 0, nil, err
+    }
+
+    wrapper := &opusWrapper{reader: reader}
+
+    player, err := audioContext.NewPlayer(audio.ResampleReader(wrapper, int64(reader.Len()), 48000, audioContext.SampleRate()))
+
+    if err != nil {
+        return nil, 0, nil, err
+    }
+
+    cleanup := func() {
+        reader.Destroy()
+    }
+
+    return player, reader.Duration(), cleanup, nil
 }
 
 func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
@@ -1792,8 +1942,8 @@ func isSongDirectory(path string) bool {
 
         name := strings.ToLower(entry.Name())
         switch name {
-            case "song.ogg", "song.mp3": hasSong = true
-            case "guitar.ogg", "guitar.mp3": hasGuitar = true
+            case "song.ogg", "song.mp3", "song.opus": hasSong = true
+            case "guitar.ogg", "guitar.mp3", "guitar.opus": hasGuitar = true
             case "notes.mid": hasNotes = true
         }
     }
