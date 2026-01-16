@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/ebitenui/ebitenui v0.7.2
 	github.com/hajimehoshi/ebiten/v2 v2.9.7
-	github.com/kazzmir/opus v0.0.0-20260116054729-f83885b06ec6
+	github.com/kazzmir/opus v0.0.0-20260116064209-9ff5c5e85f13
 	github.com/solarlune/tetra3d v0.17.1
 	gitlab.com/gomidi/midi/v2 v2.3.18
 )

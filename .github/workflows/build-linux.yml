@@ -16,7 +16,7 @@ jobs:
       - name: Install ubuntu dependencies
         run: |
           sudo apt-get -y update
-          sudo apt-get -y install libasound2-dev xorg-dev libogg-dev
+          sudo apt-get -y install libasound2-dev xorg-dev libogg-dev libopus-dev libopusfile-dev
           # for running the tests
           # sudo apt-get -y install xvfb
 
@@ -35,7 +35,6 @@ jobs:
         run: go build ./game/main
 
   build-arm64:
-    if: false
     name: Build code on arm64
     runs-on: ubuntu-24.04-arm
     steps:
@@ -48,7 +47,7 @@ jobs:
       - name: Install ubuntu dependencies
         run: |
           sudo apt-get -y update
-          sudo apt-get -y install libasound2-dev xorg-dev
+          sudo apt-get -y install libasound2-dev xorg-dev libogg-dev libopus-dev libopusfile-dev
           # for running the tests
           # sudo apt-get -y install xvfb
 
