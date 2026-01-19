@@ -37,7 +37,7 @@ import (
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 
     // "github.com/kazzmir/opus"
-    "opusgo/oggopus"
+    "opusgo/ogg"
     "opusgo/opus"
 
     "github.com/solarlune/tetra3d"
@@ -917,7 +917,7 @@ func (opusReader *OpusReader) Read(p []byte) (n int, err error) {
 */
 
 type opusWrapper struct {
-    reader *oggopus.Reader
+    reader *ogg.OpusReader
     decoder *opus.Decoder
     buffer []int16
     preskipRemaining int
@@ -999,12 +999,12 @@ func loadOpus(audioContext *audio.Context, file fs.File, name string) (*audio.Pl
         return nil, 0, nil, err
     }
 
-    reader, err := oggopus.NewReader(bytes.NewReader(allData))
+    reader, err := ogg.NewOpusReader(bytes.NewReader(allData))
     if err != nil {
         return nil, 0, nil, err
     }
 
-    reader2, _ := oggopus.NewReader(bytes.NewReader(allData))
+    reader2, _ := ogg.NewOpusReader(bytes.NewReader(allData))
     totalSamples, err := reader2.TotalSamples()
     if err != nil {
         return nil, 0, nil, err
@@ -1022,14 +1022,14 @@ func loadOpus(audioContext *audio.Context, file fs.File, name string) (*audio.Pl
         buffer: make([]int16, 0, 5760 * int(reader.Head.Channels)),
     }
 
-    player, err := audioContext.NewPlayer(audio.ResampleReader(wrapper, totalSamples * int64(reader.Head.Channels), 48000, audioContext.SampleRate()))
+    player, err := audioContext.NewPlayer(audio.ResampleReader(wrapper, totalSamples * int64(reader.Head.Channels), ogg.OpusSampleRateHz, audioContext.SampleRate()))
     // player, err := audioContext.NewPlayer(wrapper)
 
     if err != nil {
         return nil, 0, nil, err
     }
 
-    return player, time.Duration(totalSamples) * time.Second / 48000, func(){}, nil
+    return player, time.Duration(totalSamples) * time.Second / ogg.OpusSampleRateHz, func(){}, nil
 
     /*
     reader, err := opus.NewDecoder(bytes.NewReader(allData))
