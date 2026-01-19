@@ -3,6 +3,7 @@ module github.com/kazzmir/rhythm
 go 1.25.0
 
 require (
+    opusgo v0.0.0-20260116065336-73bb5ec3280c8522
 	github.com/ebitenui/ebitenui v0.7.2
 	github.com/hajimehoshi/ebiten/v2 v2.9.7
 	github.com/kazzmir/opus v0.0.0-20260116065336-37841ac80874
@@ -32,3 +33,5 @@ require (
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 )
+
+replace opusgo => /home/jon/tmp/opus/go
