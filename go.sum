@@ -32,14 +32,12 @@ github.com/jfreymuth/oggvorbis v1.0.5 h1:u+Ck+R0eLSRhgq8WTmffYnrVtSztJcYrl588DM4
 github.com/jfreymuth/oggvorbis v1.0.5/go.mod h1:1U4pqWmghcoVsCJJ4fRBKv9peUJMBHixthRlBeD6uII=
 github.com/jfreymuth/vorbis v1.0.2 h1:m1xH6+ZI4thH927pgKD8JOH4eaGRm18rEE9/0WKjvNE=
 github.com/jfreymuth/vorbis v1.0.2/go.mod h1:DoftRo4AznKnShRl1GxiTFCseHr4zR9BN3TWXyuzrqQ=
-github.com/kazzmir/opus v0.0.0-20260116065336-37841ac80874 h1:Og1ooLk8KlIYkf+Z+nkqDJFIF2HXqATu0WpT0C3vo9w=
-github.com/kazzmir/opus v0.0.0-20260116065336-37841ac80874/go.mod h1:rogZoxpMrz3yigi5QmPsF+ysCDti+HsZGN8Cwyep6bs=
+github.com/kazzmir/opus-go v0.0.0-20260119054026-f0fbe0441603 h1:d23wlFALgoVh3DsMjaAbxOxUibkqtsrtx1dAT+tM6A0=
+github.com/kazzmir/opus-go v0.0.0-20260119054026-f0fbe0441603/go.mod h1:oKDlLYxYVpknE4zKDmJyiLPB9RyhKw0n/l7EoPr6000=
 github.com/matryer/is v1.4.1 h1:55ehd8zaGABKLXQUe2awZ99BD/PTc2ls+KV/dXphgEQ=
 github.com/matryer/is v1.4.1/go.mod h1:8I/i5uYgLzgsgEloJE1U6xx5HkBQpAZvepWuujKwMRU=
 github.com/pierrec/lz4/v4 v4.1.22 h1:cKFw6uJDK+/gfw5BcDL0JL5aBsAFdsIT18eRtLj7VIU=
 github.com/pierrec/lz4/v4 v4.1.22/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
-github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
-github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/qmuntal/gltf v0.27.0 h1:A6E5F9Efg/G8ke4OfzJtSDfaTKwXRx4OYCoXfslF534=

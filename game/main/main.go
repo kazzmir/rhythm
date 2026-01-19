@@ -36,8 +36,8 @@ import (
     // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 
-    "opusgo/ogg"
-    "opusgo/opus"
+    "github.com/kazzmir/opus-go/ogg"
+    "github.com/kazzmir/opus-go/opus"
 
     "github.com/solarlune/tetra3d"
 )

@@ -3,10 +3,9 @@ module github.com/kazzmir/rhythm
 go 1.25.0
 
 require (
-    opusgo v0.0.0-20260116065336-73bb5ec3280c8522
 	github.com/ebitenui/ebitenui v0.7.2
 	github.com/hajimehoshi/ebiten/v2 v2.9.7
-	github.com/kazzmir/opus v0.0.0-20260116065336-37841ac80874
+	github.com/kazzmir/opus-go v0.0.0-20260119054026-f0fbe0441603
 	github.com/solarlune/tetra3d v0.17.1
 	gitlab.com/gomidi/midi/v2 v2.3.18
 )
@@ -22,7 +21,6 @@ require (
 	github.com/jezek/xgb v1.2.0 // indirect
 	github.com/jfreymuth/oggvorbis v1.0.5 // indirect
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/qmuntal/gltf v0.27.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
