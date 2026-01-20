@@ -179,6 +179,7 @@ type Song struct {
 
     Song *audio.Player
     Guitar *audio.Player
+    Vocals *audio.Player
     DoSong sync.Once
     NotesHit int
     NotesMissed int
@@ -207,6 +208,11 @@ func (song *Song) Close() {
     song.Guitar.Pause()
     song.Guitar.Close()
 
+    if song.Vocals != nil {
+        song.Vocals.Pause()
+        song.Vocals.Close()
+    }
+
     for _, cleanup := range song.CleanupFuncs {
         cleanup()
     }
@@ -218,6 +224,9 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
     song.DoSong.Do(func(){
         song.Song.Play()
         song.Guitar.Play()
+        if song.Vocals != nil {
+            song.Vocals.Play()
+        }
     })
 
     if song.StartTime.IsZero() {
@@ -552,32 +561,11 @@ func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Du
 func loadGuitarSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
     player, _, cleanup, err := loadAudio(audioContext, basefs, "guitar")
     return player, cleanup, err
+}
 
-    /*
-    guitarFile, err := findFile(basefs, "guitar.ogg")
-    if err == nil {
-        defer guitarFile.Close()
-        var cleanup func()
-        guitarPlayer, _, cleanup, err := loadOgg(audioContext, guitarFile, "guitar.ogg")
-        if err != nil {
-            return nil, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.ogg", err)
-        }
-        return guitarPlayer, cleanup, nil
-    } else {
-        guitarFile, err = findFile(basefs, "guitar.mp3")
-        if err == nil {
-            defer guitarFile.Close()
-            var cleanup func()
-            guitarPlayer, _, cleanup, err := loadMp3(audioContext, guitarFile, "guitar.mp3")
-            if err != nil {
-                return nil, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.mp3", err)
-            }
-            return guitarPlayer, cleanup, nil
-        } else {
-            return nil, nil, fmt.Errorf("Unable to find guitar.ogg in song directory: %v", err)
-        }
-    }
-    */
+func loadVocalSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
+    player, _, cleanup, err := loadAudio(audioContext, basefs, "vocals")
+    return player, cleanup, err
 }
 
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
@@ -625,10 +613,17 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
     if err != nil {
         return nil, fmt.Errorf("Unable to load guitar audio: %v", err)
     }
+    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
+
+    vocalsPlayer, cleanup, err := loadVocalSong(audioContext, basefs)
+    if err != nil {
+        vocalsPlayer = nil
+    }
 
     song.SongLength = songLength
     song.Song = songPlayer
     song.Guitar = guitarPlayer
+    song.Vocals = vocalsPlayer
 
     // notesPath := filepath.Join(songDirectory, "notes.mid")
 
@@ -858,7 +853,12 @@ func (wrapper *opusWrapper) Read(p []byte) (int, error) {
     if wrapper.position >= len(wrapper.buffer) {
         packet, err := wrapper.reader.ReadAudioPacket()
         if err != nil {
-            return 0, err
+            // fill with silence
+            for i := range p {
+                p[i] = 0
+            }
+
+            return len(p), err
         }
 
         wrapper.buffer = wrapper.buffer[:cap(wrapper.buffer)]
