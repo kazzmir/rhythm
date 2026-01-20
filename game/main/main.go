@@ -184,6 +184,9 @@ type Song struct {
 
     Lyrics []Lyric
 
+    LyricStart int
+    LyricEnd int
+
     Song *audio.Player
     Guitar *audio.Player
     Vocals *audio.Player
@@ -440,6 +443,31 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
             // song.Guitar.Pause()
         }
     }
+
+    if len(song.Lyrics) > 0 {
+        if song.LyricStart == -1 || (song.LyricEnd < len(song.Lyrics) && song.Lyrics[song.LyricEnd].Time <= delta - time.Millisecond * 300) {
+            if song.LyricStart == -1 {
+                if song.Lyrics[0].Time < delta + time.Millisecond * 500 {
+                    song.LyricStart = 0
+                }
+            } else {
+                song.LyricStart = song.LyricEnd
+            }
+        }
+
+        if song.LyricStart != -1 {
+            song.LyricEnd = song.LyricStart
+            for song.LyricEnd < len(song.Lyrics) {
+                if song.Lyrics[song.LyricEnd].Time > song.Lyrics[song.LyricStart].Time + time.Millisecond * 1600 {
+                    break
+                }
+
+                song.LyricEnd += 1
+            }
+        }
+    }
+
+    // log.Printf("Lyric start: %d, end: %d", song.LyricStart, song.LyricEnd)
 }
 
 // returns the index of the guitar track, or -1 if not found
@@ -588,6 +616,8 @@ func loadVocalSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, fu
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
     song := Song{
         Frets: make([]Fret, 5),
+        LyricStart: -1,
+        LyricEnd: -1,
     }
 
     song.Frets[0].InputAction = InputActionGreen
@@ -2184,6 +2214,23 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     textOptions.GeoM.Translate(0, 20)
     position := camera.WorldPosition()
     text.Draw(screen, fmt.Sprintf("Camera: X: %v Y: %v Z: %v Fov: %v", position.X, position.Y, position.Z, camera.FieldOfView()), face, &textOptions)
+
+    if song.LyricStart != -1 {
+        var totalLyrics string
+        for i := song.LyricStart; i < song.LyricEnd && i < len(song.Lyrics); i++ {
+            totalLyrics += song.Lyrics[i].Text + " "
+        }
+        if totalLyrics != "" {
+            var lyricOptions text.DrawOptions
+            face = &text.GoTextFace{
+                Source: engine.Font,
+                Size: 40,
+            }
+            width, _ := text.Measure(totalLyrics, face, 0)
+            lyricOptions.GeoM.Translate(ScreenWidth / 2 - width / 2, 10)
+            text.Draw(screen, totalLyrics, face, &lyricOptions)
+        }
+    }
 
     if delta < time.Second * 2 && song.SongInfo.Name != "" {
         textOptions.GeoM.Translate(0, 20)
