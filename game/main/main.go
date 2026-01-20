@@ -100,6 +100,11 @@ func (note *Note) HasSustain() bool {
     return note.End - note.Start > time.Millisecond * 200
 }
 
+type Lyric struct {
+    Time time.Duration
+    Text string
+}
+
 type Fret struct {
     InUse bool
     Notes []Note
@@ -176,6 +181,8 @@ type Song struct {
     Frets []Fret
     StartTime time.Time
     CleanupFuncs []func()
+
+    Lyrics []Lyric
 
     Song *audio.Player
     Guitar *audio.Player
@@ -436,13 +443,13 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
 }
 
 // returns the index of the guitar track, or -1 if not found
-func findGuitarTrack(smf *smflib.SMF) int {
+func findTrackByName(smf *smflib.SMF, name string) int {
     for i, track := range smf.Tracks {
         if len(track) > 0 {
             event := track[0]
             var trackName string
             if event.Message.GetMetaTrackName(&trackName) {
-                if strings.Contains(strings.ToLower(trackName), "guitar") {
+                if strings.Contains(strings.ToLower(trackName), name) {
                     return i
                 }
             }
@@ -450,6 +457,16 @@ func findGuitarTrack(smf *smflib.SMF) int {
     }
 
     return -1
+}
+
+// returns the index of the guitar track, or -1 if not found
+func findGuitarTrack(smf *smflib.SMF) int {
+    // the track name is usually "part guitar", but we just care about the guitar part
+    return findTrackByName(smf, "guitar")
+}
+
+func findVocalsTrack(smf *smflib.SMF) int {
+    return findTrackByName(smf, "vocals")
 }
 
 func isZip(path string) bool {
@@ -643,6 +660,8 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
         return nil, err
     }
 
+    err = song.ReadVocals(notesData)
+
     iniFile, err := findFile(basefs, "song.ini")
     if err == nil {
         defer iniFile.Close()
@@ -686,6 +705,38 @@ func loadSongInfo(file fs.File) SongInfo {
     }
 
     return out
+}
+
+// notesData is assumed to be the contents of a MIDI file
+func (song *Song) ReadVocals(notesData []byte) error {
+    smf, err := smflib.ReadFrom(bytes.NewReader(notesData))
+    if err != nil {
+        return fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
+    }
+
+    vocalsTrack := findVocalsTrack(smf)
+    if vocalsTrack == -1 {
+        return fmt.Errorf("no vocals track")
+    }
+
+    reader := smflib.ReadTracksFrom(bytes.NewReader(notesData), vocalsTrack)
+    if reader.Error() != nil {
+        return reader.Error()
+    }
+    reader.Do(func (event smflib.TrackEvent) {
+        // log.Printf("Vocals track event: %v", event)
+        var text string
+        if event.Message.GetMetaLyric(&text) {
+            // log.Printf("Lyric at %v: %v", time.Microsecond * time.Duration(event.AbsMicroSeconds), text)
+
+            song.Lyrics = append(song.Lyrics, Lyric{
+                Time: time.Microsecond * time.Duration(event.AbsMicroSeconds),
+                Text: text,
+            })
+        }
+    })
+
+    return nil
 }
 
 // notesData is assumed to be the contents of a MIDI file
