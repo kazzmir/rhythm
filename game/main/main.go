@@ -2232,6 +2232,7 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
                     Source: engine.Font,
                     Size: 40,
                 }
+                // FIXME: draw already played lyrics in a different color
                 width, _ := text.Measure(totalLyrics, face, 0)
                 lyricOptions.GeoM.Translate(ScreenWidth / 2 - width / 2, 10)
                 text.Draw(screen, totalLyrics, face, &lyricOptions)
