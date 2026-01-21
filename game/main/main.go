@@ -660,15 +660,40 @@ func loadAudio2(audioContext *audio.Context, basefs fs.FS, name string, ext stri
 
 // find all audio files in the basefs
 func loadSongParts(audioContext *audio.Context, basefs fs.FS) ([]Part, time.Duration, []func(), error) {
+    /*
     entries, err := fs.ReadDir(basefs, ".")
     if err != nil {
         return nil, 0, nil, fmt.Errorf("Unable to read song directory: %v", err)
     }
+    */
 
     var longest time.Duration
     var parts []Part
     var cleanupFuncs []func()
 
+    err := fs.WalkDir(basefs, ".", func(path string, entry fs.DirEntry, err error) error {
+        if entry.IsDir() {
+            return nil
+        }
+
+        if isAudioFile(path) {
+            player, duration, cleanup, err := loadAudio2(audioContext, basefs, path, strings.ToLower(filepath.Ext(path)))
+            if err == nil {
+                parts = append(parts, Part{
+                    Name: strings.TrimSuffix(path, filepath.Ext(path)),
+                    Player: player,
+                })
+                cleanupFuncs = append(cleanupFuncs, cleanup)
+                if duration > longest {
+                    longest = duration
+                }
+            }
+        }
+
+        return nil
+    })
+
+    /*
     for _, entry := range entries {
         name := entry.Name()
 
@@ -686,8 +711,9 @@ func loadSongParts(audioContext *audio.Context, basefs fs.FS) ([]Part, time.Dura
             }
         }
     }
+    */
 
-    return parts, longest, cleanupFuncs, nil
+    return parts, longest, cleanupFuncs, err
 }
 
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
