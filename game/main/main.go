@@ -2236,6 +2236,29 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
                 lyricOptions.GeoM.Translate(ScreenWidth / 2 - width / 2, 10)
                 text.Draw(screen, totalLyrics, face, &lyricOptions)
             }
+
+            nextBatch := song.LyricBatch + 1
+            if nextBatch < len(song.LyricBatches) {
+                next := song.LyricBatches[nextBatch]
+
+                if next.StartTime() - batch.EndTime() < time.Second {
+                    var nextLyrics string
+                    for _, lyric := range next {
+                        nextLyrics += lyric.Text + " "
+                    }
+                    if nextLyrics != "" {
+                        smallFace := text.GoTextFace{
+                            Source: engine.Font,
+                            Size: 20,
+                        }
+                        var lyricOptions text.DrawOptions
+                        width, _ := text.Measure(nextLyrics, &smallFace, 0)
+                        lyricOptions.GeoM.Reset()
+                        lyricOptions.GeoM.Translate(ScreenWidth / 2 - width / 2, 10 + 40 + 10)
+                        text.Draw(screen, nextLyrics, &smallFace, &lyricOptions)
+                    }
+                }
+            }
         }
     }
 
