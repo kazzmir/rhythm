@@ -177,15 +177,23 @@ type FlameMaker interface {
     MakeFlame(fret int)
 }
 
+type LyricBatch []Lyric
+func (batch LyricBatch) StartTime() time.Duration {
+    return batch[0].Time
+}
+
+func (batch LyricBatch) EndTime() time.Duration {
+    return batch[len(batch)-1].Time
+}
+
 type Song struct {
     Frets []Fret
     StartTime time.Time
     CleanupFuncs []func()
 
-    Lyrics []Lyric
+    LyricBatches []LyricBatch
 
-    LyricStart int
-    LyricEnd int
+    LyricBatch int
 
     Song *audio.Player
     Guitar *audio.Player
@@ -444,30 +452,9 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
         }
     }
 
-    if len(song.Lyrics) > 0 {
-        if song.LyricStart == -1 || (song.LyricEnd < len(song.Lyrics) && song.Lyrics[song.LyricEnd].Time <= delta - time.Millisecond * 300) {
-            if song.LyricStart == -1 {
-                if song.Lyrics[0].Time < delta + time.Millisecond * 500 {
-                    song.LyricStart = 0
-                }
-            } else {
-                song.LyricStart = song.LyricEnd
-            }
-        }
-
-        if song.LyricStart != -1 {
-            song.LyricEnd = song.LyricStart
-            for song.LyricEnd < len(song.Lyrics) {
-                if song.Lyrics[song.LyricEnd].Time > song.Lyrics[song.LyricStart].Time + time.Millisecond * 1600 {
-                    break
-                }
-
-                song.LyricEnd += 1
-            }
-        }
+    for song.LyricBatch < len(song.LyricBatches) && delta >= song.LyricBatches[song.LyricBatch].EndTime() + time.Millisecond * 300 {
+        song.LyricBatch += 1
     }
-
-    // log.Printf("Lyric start: %d, end: %d", song.LyricStart, song.LyricEnd)
 }
 
 // returns the index of the guitar track, or -1 if not found
@@ -616,8 +603,6 @@ func loadVocalSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, fu
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
     song := Song{
         Frets: make([]Fret, 5),
-        LyricStart: -1,
-        LyricEnd: -1,
     }
 
     song.Frets[0].InputAction = InputActionGreen
@@ -690,7 +675,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
         return nil, err
     }
 
-    err = song.ReadVocals(notesData)
+    err = song.ReadLyrics(notesData)
 
     iniFile, err := findFile(basefs, "song.ini")
     if err == nil {
@@ -738,7 +723,7 @@ func loadSongInfo(file fs.File) SongInfo {
 }
 
 // notesData is assumed to be the contents of a MIDI file
-func (song *Song) ReadVocals(notesData []byte) error {
+func (song *Song) ReadLyrics(notesData []byte) error {
     smf, err := smflib.ReadFrom(bytes.NewReader(notesData))
     if err != nil {
         return fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
@@ -753,18 +738,35 @@ func (song *Song) ReadVocals(notesData []byte) error {
     if reader.Error() != nil {
         return reader.Error()
     }
+
+    var lyrics []Lyric
+
     reader.Do(func (event smflib.TrackEvent) {
         // log.Printf("Vocals track event: %v", event)
         var text string
         if event.Message.GetMetaLyric(&text) {
             // log.Printf("Lyric at %v: %v", time.Microsecond * time.Duration(event.AbsMicroSeconds), text)
 
-            song.Lyrics = append(song.Lyrics, Lyric{
+            lyrics = append(lyrics, Lyric{
                 Time: time.Microsecond * time.Duration(event.AbsMicroSeconds),
                 Text: text,
             })
         }
     })
+
+    var currentBatch []Lyric
+    for _, lyric := range lyrics {
+        if len(currentBatch) == 0 {
+            currentBatch = append(currentBatch, lyric)
+        } else {
+            if lyric.Time - currentBatch[0].Time < time.Millisecond * 2000 {
+                currentBatch = append(currentBatch, lyric)
+            } else {
+                song.LyricBatches = append(song.LyricBatches, currentBatch)
+                currentBatch = []Lyric{lyric}
+            }
+        }
+    }
 
     return nil
 }
@@ -2215,20 +2217,25 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     position := camera.WorldPosition()
     text.Draw(screen, fmt.Sprintf("Camera: X: %v Y: %v Z: %v Fov: %v", position.X, position.Y, position.Z, camera.FieldOfView()), face, &textOptions)
 
-    if song.LyricStart != -1 {
-        var totalLyrics string
-        for i := song.LyricStart; i < song.LyricEnd && i < len(song.Lyrics); i++ {
-            totalLyrics += song.Lyrics[i].Text + " "
-        }
-        if totalLyrics != "" {
-            var lyricOptions text.DrawOptions
-            face = &text.GoTextFace{
-                Source: engine.Font,
-                Size: 40,
+    if song.LyricBatch < len(song.LyricBatches) {
+        batch := song.LyricBatches[song.LyricBatch]
+        // log.Printf("Batch start: %v, end: %v, delta: %v", batch.StartTime(), batch.EndTime(), delta)
+        // log.Printf("%v %v", batch.StartTime() > delta - time.Millisecond * 500, batch.EndTime() < delta + time.Millisecond * 500)
+        if delta > batch.StartTime() - time.Millisecond * 500 && delta < batch.EndTime() + time.Millisecond * 500 {
+            var totalLyrics string
+            for _, lyric := range batch {
+                totalLyrics += lyric.Text + " "
             }
-            width, _ := text.Measure(totalLyrics, face, 0)
-            lyricOptions.GeoM.Translate(ScreenWidth / 2 - width / 2, 10)
-            text.Draw(screen, totalLyrics, face, &lyricOptions)
+            if totalLyrics != "" {
+                var lyricOptions text.DrawOptions
+                face = &text.GoTextFace{
+                    Source: engine.Font,
+                    Size: 40,
+                }
+                width, _ := text.Measure(totalLyrics, face, 0)
+                lyricOptions.GeoM.Translate(ScreenWidth / 2 - width / 2, 10)
+                text.Draw(screen, totalLyrics, face, &lyricOptions)
+            }
         }
     }
 
