@@ -553,60 +553,6 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
     return foundFile, nil
 }
 
-func loadAudio(audioContext *audio.Context, basefs fs.FS, baseName string) (*audio.Player, time.Duration, func(), error) {
-    type Loader struct {
-        Name string
-        LoadFunc func(*audio.Context, fs.File, string) (*audio.Player, time.Duration, func(), error)
-    }
-
-    loaders := []Loader{
-        Loader{
-            Name: fmt.Sprintf("%v.ogg", baseName),
-            LoadFunc: loadOgg,
-        },
-        Loader{
-            Name: fmt.Sprintf("%v.mp3", baseName),
-            LoadFunc: loadMp3,
-        },
-        Loader{
-            Name: fmt.Sprintf("%v.opus", baseName),
-            LoadFunc: loadOpus,
-        },
-    }
-
-    for _, loader := range loaders {
-        songFile, err := findFile(basefs, loader.Name)
-        if err == nil {
-            defer songFile.Close()
-
-            var cleanup func()
-
-            songPlayer, songLength, cleanup, err := loader.LoadFunc(audioContext, songFile, loader.Name)
-            if err != nil {
-                return nil, 0, nil, fmt.Errorf("Unable to create audio player for file '%v': %v", loader.Name, err)
-            }
-
-            return songPlayer, songLength, cleanup, nil
-        }
-    }
-
-    return nil, 0, nil, fmt.Errorf("Unable to find song.ogg or song.mp3 in song directory")
-}
-
-func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Duration, func(), error) {
-    return loadAudio(audioContext, basefs, "song")
-}
-
-func loadGuitarSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
-    player, _, cleanup, err := loadAudio(audioContext, basefs, "guitar")
-    return player, cleanup, err
-}
-
-func loadVocalSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
-    player, _, cleanup, err := loadAudio(audioContext, basefs, "vocals")
-    return player, cleanup, err
-}
-
 func isAudioFile(name string) bool {
     ext := strings.ToLower(filepath.Ext(name))
     switch ext {
@@ -1106,7 +1052,7 @@ func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
         return nil, 0, nil, err
     }
 
-    log.Printf("Loaded OGG file '%s' length %d", name, len(allData))
+    // log.Printf("Loaded OGG file '%s' length %d", name, len(allData))
 
     return songPlayer, time.Duration(length) * time.Second, func(){}, nil
 }
