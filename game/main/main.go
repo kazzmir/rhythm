@@ -100,6 +100,11 @@ func (note *Note) HasSustain() bool {
     return note.End - note.Start > time.Millisecond * 200
 }
 
+type Lyric struct {
+    Time time.Duration
+    Text string
+}
+
 type Fret struct {
     InUse bool
     Notes []Note
@@ -172,13 +177,27 @@ type FlameMaker interface {
     MakeFlame(fret int)
 }
 
+type LyricBatch []Lyric
+func (batch LyricBatch) StartTime() time.Duration {
+    return batch[0].Time
+}
+
+func (batch LyricBatch) EndTime() time.Duration {
+    return batch[len(batch)-1].Time
+}
+
 type Song struct {
     Frets []Fret
     StartTime time.Time
     CleanupFuncs []func()
 
+    LyricBatches []LyricBatch
+
+    LyricBatch int
+
     Song *audio.Player
     Guitar *audio.Player
+    Vocals *audio.Player
     DoSong sync.Once
     NotesHit int
     NotesMissed int
@@ -207,6 +226,11 @@ func (song *Song) Close() {
     song.Guitar.Pause()
     song.Guitar.Close()
 
+    if song.Vocals != nil {
+        song.Vocals.Pause()
+        song.Vocals.Close()
+    }
+
     for _, cleanup := range song.CleanupFuncs {
         cleanup()
     }
@@ -218,6 +242,9 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
     song.DoSong.Do(func(){
         song.Song.Play()
         song.Guitar.Play()
+        if song.Vocals != nil {
+            song.Vocals.Play()
+        }
     })
 
     if song.StartTime.IsZero() {
@@ -424,16 +451,20 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
             // song.Guitar.Pause()
         }
     }
+
+    for song.LyricBatch < len(song.LyricBatches) && delta >= song.LyricBatches[song.LyricBatch].EndTime() + time.Millisecond * 300 {
+        song.LyricBatch += 1
+    }
 }
 
 // returns the index of the guitar track, or -1 if not found
-func findGuitarTrack(smf *smflib.SMF) int {
+func findTrackByName(smf *smflib.SMF, name string) int {
     for i, track := range smf.Tracks {
         if len(track) > 0 {
             event := track[0]
             var trackName string
             if event.Message.GetMetaTrackName(&trackName) {
-                if strings.Contains(strings.ToLower(trackName), "guitar") {
+                if strings.Contains(strings.ToLower(trackName), name) {
                     return i
                 }
             }
@@ -441,6 +472,16 @@ func findGuitarTrack(smf *smflib.SMF) int {
     }
 
     return -1
+}
+
+// returns the index of the guitar track, or -1 if not found
+func findGuitarTrack(smf *smflib.SMF) int {
+    // the track name is usually "part guitar", but we just care about the guitar part
+    return findTrackByName(smf, "guitar")
+}
+
+func findVocalsTrack(smf *smflib.SMF) int {
+    return findTrackByName(smf, "vocals")
 }
 
 func isZip(path string) bool {
@@ -552,32 +593,11 @@ func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Du
 func loadGuitarSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
     player, _, cleanup, err := loadAudio(audioContext, basefs, "guitar")
     return player, cleanup, err
+}
 
-    /*
-    guitarFile, err := findFile(basefs, "guitar.ogg")
-    if err == nil {
-        defer guitarFile.Close()
-        var cleanup func()
-        guitarPlayer, _, cleanup, err := loadOgg(audioContext, guitarFile, "guitar.ogg")
-        if err != nil {
-            return nil, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.ogg", err)
-        }
-        return guitarPlayer, cleanup, nil
-    } else {
-        guitarFile, err = findFile(basefs, "guitar.mp3")
-        if err == nil {
-            defer guitarFile.Close()
-            var cleanup func()
-            guitarPlayer, _, cleanup, err := loadMp3(audioContext, guitarFile, "guitar.mp3")
-            if err != nil {
-                return nil, nil, fmt.Errorf("Unable to create audio player for ogg file '%v': %v", "guitar.mp3", err)
-            }
-            return guitarPlayer, cleanup, nil
-        } else {
-            return nil, nil, fmt.Errorf("Unable to find guitar.ogg in song directory: %v", err)
-        }
-    }
-    */
+func loadVocalSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
+    player, _, cleanup, err := loadAudio(audioContext, basefs, "vocals")
+    return player, cleanup, err
 }
 
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
@@ -625,10 +645,17 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
     if err != nil {
         return nil, fmt.Errorf("Unable to load guitar audio: %v", err)
     }
+    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
+
+    vocalsPlayer, cleanup, err := loadVocalSong(audioContext, basefs)
+    if err != nil {
+        vocalsPlayer = nil
+    }
 
     song.SongLength = songLength
     song.Song = songPlayer
     song.Guitar = guitarPlayer
+    song.Vocals = vocalsPlayer
 
     // notesPath := filepath.Join(songDirectory, "notes.mid")
 
@@ -647,6 +674,8 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
     if err != nil {
         return nil, err
     }
+
+    err = song.ReadLyrics(notesData)
 
     iniFile, err := findFile(basefs, "song.ini")
     if err == nil {
@@ -691,6 +720,55 @@ func loadSongInfo(file fs.File) SongInfo {
     }
 
     return out
+}
+
+// notesData is assumed to be the contents of a MIDI file
+func (song *Song) ReadLyrics(notesData []byte) error {
+    smf, err := smflib.ReadFrom(bytes.NewReader(notesData))
+    if err != nil {
+        return fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
+    }
+
+    vocalsTrack := findVocalsTrack(smf)
+    if vocalsTrack == -1 {
+        return fmt.Errorf("no vocals track")
+    }
+
+    reader := smflib.ReadTracksFrom(bytes.NewReader(notesData), vocalsTrack)
+    if reader.Error() != nil {
+        return reader.Error()
+    }
+
+    var lyrics []Lyric
+
+    reader.Do(func (event smflib.TrackEvent) {
+        // log.Printf("Vocals track event: %v", event)
+        var text string
+        if event.Message.GetMetaLyric(&text) {
+            // log.Printf("Lyric at %v: %v", time.Microsecond * time.Duration(event.AbsMicroSeconds), text)
+
+            lyrics = append(lyrics, Lyric{
+                Time: time.Microsecond * time.Duration(event.AbsMicroSeconds),
+                Text: text,
+            })
+        }
+    })
+
+    var currentBatch []Lyric
+    for _, lyric := range lyrics {
+        if len(currentBatch) == 0 {
+            currentBatch = append(currentBatch, lyric)
+        } else {
+            if lyric.Time - currentBatch[0].Time < time.Millisecond * 2000 {
+                currentBatch = append(currentBatch, lyric)
+            } else {
+                song.LyricBatches = append(song.LyricBatches, currentBatch)
+                currentBatch = []Lyric{lyric}
+            }
+        }
+    }
+
+    return nil
 }
 
 // notesData is assumed to be the contents of a MIDI file
@@ -843,78 +921,6 @@ func loadMp3(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
     return songPlayer, time.Duration(length) * time.Second, func(){}, nil
 }
 
-/*
-type OpusReader struct {
-    decodeBufferOffset uint64
-    segmentBuffer [][]byte
-    oggFile *oggreader.OggReader
-    opusDecoder *opus.Decoder
-    decodeBuffer []byte
-}
-
-func NewOpusReader(oggReader *oggreader.OggReader, header *oggreader.OggHeader, sampleRate int) *OpusReader {
-    opusDecoder := opus.NewDecoder()
-
-    // skip first 3 pages
-    / *
-    for range 3 {
-        oggReader.ParseNextPage()
-    }
-    * /
-
-    return &OpusReader{
-        oggFile: oggReader,
-        opusDecoder: &opusDecoder,
-        decodeBuffer: make([]byte, sampleRate * 2 * 2), // 1 second buffer (stereo, 16-bit)
-    }
-}
-
-func (opusReader *OpusReader) Read(p []byte) (n int, err error) {
-    if opusReader.decodeBufferOffset == 0 || opusReader.decodeBufferOffset >= uint64(len(opusReader.decodeBuffer)) {
-		if len(opusReader.segmentBuffer) == 0 {
-			for {
-                log.Printf("Reading next Opus page")
-				opusReader.segmentBuffer, _, err = opusReader.oggFile.ParseNextPage()
-				if err != nil {
-					return 0, err
-				} else if bytes.HasPrefix(opusReader.segmentBuffer[0], []byte("OpusTags")) {
-                    log.Printf("Skipping OpusTags segment")
-
-                    log.Printf("Remaining segments: %d", len(opusReader.segmentBuffer))
-                    for i, segment := range opusReader.segmentBuffer {
-                        log.Printf("  Segment %d size: %d", i, len(segment))
-                        log.Printf("    Data: %v", string(segment))
-                    }
-
-					continue
-				}
-
-				break
-			}
-		}
-
-        log.Printf("Decoding next Opus segment, %d segments left", len(opusReader.segmentBuffer))
-        for i, segment := range opusReader.segmentBuffer {
-            log.Printf("  Segment %d size: %d", i, len(segment))
-        }
-		var segment []byte
-		segment, opusReader.segmentBuffer = opusReader.segmentBuffer[0], opusReader.segmentBuffer[1:]
-
-        log.Printf("Segment: %v", segment)
-
-		opusReader.decodeBufferOffset = 0
-        log.Printf("Decoding Opus segment of size %d", len(segment))
-		if _, _, err = opusReader.opusDecoder.Decode(segment, opusReader.decodeBuffer); err != nil {
-            return 0, fmt.Errorf("opus decode error: %v", err)
-		}
-	}
-
-	n = copy(p, opusReader.decodeBuffer[opusReader.decodeBufferOffset:])
-	opusReader.decodeBufferOffset += uint64(n)
-	return n, nil
-}
-*/
-
 type opusWrapper struct {
     reader *ogg.OpusReader
     decoder *opus.Decoder
@@ -930,7 +936,12 @@ func (wrapper *opusWrapper) Read(p []byte) (int, error) {
     if wrapper.position >= len(wrapper.buffer) {
         packet, err := wrapper.reader.ReadAudioPacket()
         if err != nil {
-            return 0, err
+            // fill with silence
+            for i := range p {
+                p[i] = 0
+            }
+
+            return len(p), err
         }
 
         wrapper.buffer = wrapper.buffer[:cap(wrapper.buffer)]
@@ -2205,6 +2216,52 @@ func (engine *Engine) DrawSong3d(screen *ebiten.Image, song *Song, scene *tetra3
     textOptions.GeoM.Translate(0, 20)
     position := camera.WorldPosition()
     text.Draw(screen, fmt.Sprintf("Camera: X: %v Y: %v Z: %v Fov: %v", position.X, position.Y, position.Z, camera.FieldOfView()), face, &textOptions)
+
+    if song.LyricBatch < len(song.LyricBatches) {
+        batch := song.LyricBatches[song.LyricBatch]
+        // log.Printf("Batch start: %v, end: %v, delta: %v", batch.StartTime(), batch.EndTime(), delta)
+        // log.Printf("%v %v", batch.StartTime() > delta - time.Millisecond * 500, batch.EndTime() < delta + time.Millisecond * 500)
+        if delta > batch.StartTime() - time.Millisecond * 500 && delta < batch.EndTime() + time.Millisecond * 500 {
+            var totalLyrics string
+            for _, lyric := range batch {
+                totalLyrics += lyric.Text + " "
+            }
+            if totalLyrics != "" {
+                var lyricOptions text.DrawOptions
+                face = &text.GoTextFace{
+                    Source: engine.Font,
+                    Size: 40,
+                }
+                // FIXME: draw already played lyrics in a different color
+                width, _ := text.Measure(totalLyrics, face, 0)
+                lyricOptions.GeoM.Translate(ScreenWidth / 2 - width / 2, 10)
+                text.Draw(screen, totalLyrics, face, &lyricOptions)
+            }
+
+            nextBatch := song.LyricBatch + 1
+            if nextBatch < len(song.LyricBatches) {
+                next := song.LyricBatches[nextBatch]
+
+                if next.StartTime() - batch.EndTime() < time.Second {
+                    var nextLyrics string
+                    for _, lyric := range next {
+                        nextLyrics += lyric.Text + " "
+                    }
+                    if nextLyrics != "" {
+                        smallFace := text.GoTextFace{
+                            Source: engine.Font,
+                            Size: 20,
+                        }
+                        var lyricOptions text.DrawOptions
+                        width, _ := text.Measure(nextLyrics, &smallFace, 0)
+                        lyricOptions.GeoM.Reset()
+                        lyricOptions.GeoM.Translate(ScreenWidth / 2 - width / 2, 10 + 40 + 10)
+                        text.Draw(screen, nextLyrics, &smallFace, &lyricOptions)
+                    }
+                }
+            }
+        }
+    }
 
     if delta < time.Second * 2 && song.SongInfo.Name != "" {
         textOptions.GeoM.Translate(0, 20)
