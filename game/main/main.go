@@ -201,11 +201,6 @@ type Song struct {
     LyricBatch int
 
     Parts []Part
-    /*
-    Song *audio.Player
-    Guitar *audio.Player
-    Vocals *audio.Player
-    */
 
     DoSong sync.Once
     NotesHit int
@@ -235,18 +230,6 @@ func (song *Song) Close() {
         part.Player.Close()
     }
 
-    /*
-    song.Song.Pause()
-    song.Song.Close()
-    song.Guitar.Pause()
-    song.Guitar.Close()
-
-    if song.Vocals != nil {
-        song.Vocals.Pause()
-        song.Vocals.Close()
-    }
-    */
-
     for _, cleanup := range song.CleanupFuncs {
         cleanup()
     }
@@ -259,14 +242,6 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
         for _, part := range song.Parts {
             part.Player.Play()
         }
-
-        /*
-        song.Song.Play()
-        song.Guitar.Play()
-        if song.Vocals != nil {
-            song.Vocals.Play()
-        }
-        */
     })
 
     if song.StartTime.IsZero() {
@@ -660,13 +635,6 @@ func loadAudio2(audioContext *audio.Context, basefs fs.FS, name string, ext stri
 
 // find all audio files in the basefs
 func loadSongParts(audioContext *audio.Context, basefs fs.FS) ([]Part, time.Duration, []func(), error) {
-    /*
-    entries, err := fs.ReadDir(basefs, ".")
-    if err != nil {
-        return nil, 0, nil, fmt.Errorf("Unable to read song directory: %v", err)
-    }
-    */
-
     var longest time.Duration
     var parts []Part
     var cleanupFuncs []func()
@@ -692,26 +660,6 @@ func loadSongParts(audioContext *audio.Context, basefs fs.FS) ([]Part, time.Dura
 
         return nil
     })
-
-    /*
-    for _, entry := range entries {
-        name := entry.Name()
-
-        if isAudioFile(name) {
-            player, duration, cleanup, err := loadAudio2(audioContext, basefs, name, strings.ToLower(filepath.Ext(name)))
-            if err == nil {
-                parts = append(parts, Part{
-                    Name: strings.TrimSuffix(name, filepath.Ext(name)),
-                    Player: player,
-                })
-                cleanupFuncs = append(cleanupFuncs, cleanup)
-                if duration > longest {
-                    longest = duration
-                }
-            }
-        }
-    }
-    */
 
     return parts, longest, cleanupFuncs, err
 }
@@ -748,40 +696,12 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
         basefs = os.DirFS(songDirectory)
     }
 
-    // var songLength time.Duration
-    // var songPlayer *audio.Player
     var err error
 
     song.Parts, song.SongLength, song.CleanupFuncs, err = loadSongParts(audioContext, basefs)
     if err != nil {
         return nil, fmt.Errorf("Unable to load song parts: %v", err)
     }
-
-    /*
-    songPlayer, songLength, cleanup, err := loadSong(audioContext, basefs)
-    if err != nil {
-        return nil, fmt.Errorf("Unable to load song audio: %v", err)
-    }
-    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
-
-    guitarPlayer, cleanup, err := loadGuitarSong(audioContext, basefs)
-    if err != nil {
-        return nil, fmt.Errorf("Unable to load guitar audio: %v", err)
-    }
-    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
-
-    vocalsPlayer, cleanup, err := loadVocalSong(audioContext, basefs)
-    if err != nil {
-        vocalsPlayer = nil
-    }
-    */
-
-    // song.SongLength = songLength
-    /*
-    song.Song = songPlayer
-    song.Guitar = guitarPlayer
-    song.Vocals = vocalsPlayer
-    */
 
     // notesPath := filepath.Join(songDirectory, "notes.mid")
 
