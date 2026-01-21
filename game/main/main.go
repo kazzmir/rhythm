@@ -186,6 +186,11 @@ func (batch LyricBatch) EndTime() time.Duration {
     return batch[len(batch)-1].Time
 }
 
+type Part struct {
+    Name string
+    Player *audio.Player
+}
+
 type Song struct {
     Frets []Fret
     StartTime time.Time
@@ -195,9 +200,13 @@ type Song struct {
 
     LyricBatch int
 
+    Parts []Part
+    /*
     Song *audio.Player
     Guitar *audio.Player
     Vocals *audio.Player
+    */
+
     DoSong sync.Once
     NotesHit int
     NotesMissed int
@@ -221,6 +230,12 @@ func (song *Song) TotalNotes() int {
 }
 
 func (song *Song) Close() {
+    for _, part := range song.Parts {
+        part.Player.Pause()
+        part.Player.Close()
+    }
+
+    /*
     song.Song.Pause()
     song.Song.Close()
     song.Guitar.Pause()
@@ -230,6 +245,7 @@ func (song *Song) Close() {
         song.Vocals.Pause()
         song.Vocals.Close()
     }
+    */
 
     for _, cleanup := range song.CleanupFuncs {
         cleanup()
@@ -240,11 +256,17 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
     song.Counter += 1
 
     song.DoSong.Do(func(){
+        for _, part := range song.Parts {
+            part.Player.Play()
+        }
+
+        /*
         song.Song.Play()
         song.Guitar.Play()
         if song.Vocals != nil {
             song.Vocals.Play()
         }
+        */
     })
 
     if song.StartTime.IsZero() {
@@ -433,22 +455,32 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
     }
 
     if changeGuitar {
-        if playGuitar && !stopGuitar {
-
-            song.Guitar.SetVolume(1.0)
-
-            /*
-            if !song.Guitar.IsPlaying() {
-                err := song.Guitar.SetPosition(delta)
-                if err != nil {
-                    log.Printf("Failed to set guitar position: %v", err)
-                }
-                song.Guitar.Play()
+        var guitarPart *audio.Player
+        for _, part := range song.Parts {
+            if part.Name == "guitar" {
+                guitarPart = part.Player
             }
-            */
-        } else {
-            song.Guitar.SetVolume(0.3)
-            // song.Guitar.Pause()
+        }
+
+        if guitarPart != nil {
+
+            if playGuitar && !stopGuitar {
+
+                guitarPart.SetVolume(1.0)
+
+                /*
+                if !song.Guitar.IsPlaying() {
+                    err := song.Guitar.SetPosition(delta)
+                    if err != nil {
+                        log.Printf("Failed to set guitar position: %v", err)
+                    }
+                    song.Guitar.Play()
+                }
+                */
+            } else {
+                guitarPart.SetVolume(0.3)
+                // song.Guitar.Pause()
+            }
         }
     }
 
@@ -600,6 +632,64 @@ func loadVocalSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, fu
     return player, cleanup, err
 }
 
+func isAudioFile(name string) bool {
+    ext := strings.ToLower(filepath.Ext(name))
+    switch ext {
+        case ".mp3", ".ogg", ".opus":
+            return true
+        default:
+            return false
+    }
+}
+
+func loadAudio2(audioContext *audio.Context, basefs fs.FS, name string, ext string) (*audio.Player, time.Duration, func(), error) {
+    file, err := basefs.Open(name)
+    if err != nil {
+        return nil, 0, nil, fmt.Errorf("Unable to open audio file '%v': %v", name, err)
+    }
+    defer file.Close()
+
+    switch ext {
+        case ".mp3": return loadMp3(audioContext, file, name)
+        case ".ogg": return loadOgg(audioContext, file, name)
+        case ".opus": return loadOpus(audioContext, file, name)
+    }
+
+    return nil, 0, nil, fmt.Errorf("Unsupported audio file extension '%v' for file '%v'", ext, name)
+}
+
+// find all audio files in the basefs
+func loadSongParts(audioContext *audio.Context, basefs fs.FS) ([]Part, time.Duration, []func(), error) {
+    entries, err := fs.ReadDir(basefs, ".")
+    if err != nil {
+        return nil, 0, nil, fmt.Errorf("Unable to read song directory: %v", err)
+    }
+
+    var longest time.Duration
+    var parts []Part
+    var cleanupFuncs []func()
+
+    for _, entry := range entries {
+        name := entry.Name()
+
+        if isAudioFile(name) {
+            player, duration, cleanup, err := loadAudio2(audioContext, basefs, name, strings.ToLower(filepath.Ext(name)))
+            if err == nil {
+                parts = append(parts, Part{
+                    Name: strings.TrimSuffix(name, filepath.Ext(name)),
+                    Player: player,
+                })
+                cleanupFuncs = append(cleanupFuncs, cleanup)
+                if duration > longest {
+                    longest = duration
+                }
+            }
+        }
+    }
+
+    return parts, longest, cleanupFuncs, nil
+}
+
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
     song := Song{
         Frets: make([]Fret, 5),
@@ -632,9 +722,16 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
         basefs = os.DirFS(songDirectory)
     }
 
-    var songLength time.Duration
-    var songPlayer *audio.Player
+    // var songLength time.Duration
+    // var songPlayer *audio.Player
+    var err error
 
+    song.Parts, song.SongLength, song.CleanupFuncs, err = loadSongParts(audioContext, basefs)
+    if err != nil {
+        return nil, fmt.Errorf("Unable to load song parts: %v", err)
+    }
+
+    /*
     songPlayer, songLength, cleanup, err := loadSong(audioContext, basefs)
     if err != nil {
         return nil, fmt.Errorf("Unable to load song audio: %v", err)
@@ -651,11 +748,14 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
     if err != nil {
         vocalsPlayer = nil
     }
+    */
 
-    song.SongLength = songLength
+    // song.SongLength = songLength
+    /*
     song.Song = songPlayer
     song.Guitar = guitarPlayer
     song.Vocals = vocalsPlayer
+    */
 
     // notesPath := filepath.Join(songDirectory, "notes.mid")
 
@@ -670,7 +770,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
         return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
 
-    err = song.ReadNotes(notesData, difficulty, songLength)
+    err = song.ReadNotes(notesData, difficulty, song.SongLength)
     if err != nil {
         return nil, err
     }
@@ -963,19 +1063,43 @@ func (wrapper *opusWrapper) Read(p []byte) (int, error) {
         }
     }
 
-    atMost := min(len(p) / 2, len(wrapper.buffer) - wrapper.position)
+    switch wrapper.reader.Head.Channels {
+        case 1:
+            // we have to produce stereo audio, so each input sample becomes two output samples
+            atMost := min(len(p) / 4, len(wrapper.buffer) - wrapper.position)
+            // log.Printf("Rendering opus: p=%d buffer=%d atMost=%d position=%d", len(p), len(wrapper.buffer), atMost, wrapper.position)
+            count := 0
+            for count < atMost {
+                low := byte(wrapper.buffer[wrapper.position + count] & 0xFF)
+                high := byte((wrapper.buffer[wrapper.position + count] >> 8) & 0xFF)
 
-    // log.Printf("Rendering opus: p=%d buffer=%d atMost=%d position=%d", len(p), len(wrapper.buffer), atMost, wrapper.position)
+                p[count*4] = low
+                p[count*4+1] = high
+                p[count*4+2] = low
+                p[count*4+3] = high
+                count += 1
+            }
+            wrapper.position += count
 
-    count := 0
-    for count < atMost {
-        p[count*2] = byte(wrapper.buffer[wrapper.position + count] & 0xFF)
-        p[count*2+1] = byte((wrapper.buffer[wrapper.position + count] >> 8) & 0xFF)
-        count += 1
+            return count * 4, nil
+
+        case 2:
+            atMost := min(len(p) / 2, len(wrapper.buffer) - wrapper.position)
+
+            // log.Printf("Rendering opus: p=%d buffer=%d atMost=%d position=%d", len(p), len(wrapper.buffer), atMost, wrapper.position)
+
+            count := 0
+            for count < atMost {
+                p[count*2] = byte(wrapper.buffer[wrapper.position + count] & 0xFF)
+                p[count*2+1] = byte((wrapper.buffer[wrapper.position + count] >> 8) & 0xFF)
+                count += 1
+            }
+            wrapper.position += count
+
+            return count * 2, nil
     }
-    wrapper.position += count
 
-    return count * 2, nil
+    return 0, fmt.Errorf("unsupported number of channels: %d", wrapper.reader.Head.Channels)
 }
 
 func loadOpus(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
