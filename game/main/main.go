@@ -186,6 +186,11 @@ func (batch LyricBatch) EndTime() time.Duration {
     return batch[len(batch)-1].Time
 }
 
+type Part struct {
+    Name string
+    Player *audio.Player
+}
+
 type Song struct {
     Frets []Fret
     StartTime time.Time
@@ -195,9 +200,8 @@ type Song struct {
 
     LyricBatch int
 
-    Song *audio.Player
-    Guitar *audio.Player
-    Vocals *audio.Player
+    Parts []Part
+
     DoSong sync.Once
     NotesHit int
     NotesMissed int
@@ -221,14 +225,9 @@ func (song *Song) TotalNotes() int {
 }
 
 func (song *Song) Close() {
-    song.Song.Pause()
-    song.Song.Close()
-    song.Guitar.Pause()
-    song.Guitar.Close()
-
-    if song.Vocals != nil {
-        song.Vocals.Pause()
-        song.Vocals.Close()
+    for _, part := range song.Parts {
+        part.Player.Pause()
+        part.Player.Close()
     }
 
     for _, cleanup := range song.CleanupFuncs {
@@ -240,10 +239,8 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
     song.Counter += 1
 
     song.DoSong.Do(func(){
-        song.Song.Play()
-        song.Guitar.Play()
-        if song.Vocals != nil {
-            song.Vocals.Play()
+        for _, part := range song.Parts {
+            part.Player.Play()
         }
     })
 
@@ -433,22 +430,32 @@ func (song *Song) Update(input *InputProfile, flameMaker FlameMaker) {
     }
 
     if changeGuitar {
-        if playGuitar && !stopGuitar {
-
-            song.Guitar.SetVolume(1.0)
-
-            /*
-            if !song.Guitar.IsPlaying() {
-                err := song.Guitar.SetPosition(delta)
-                if err != nil {
-                    log.Printf("Failed to set guitar position: %v", err)
-                }
-                song.Guitar.Play()
+        var guitarPart *audio.Player
+        for _, part := range song.Parts {
+            if part.Name == "guitar" {
+                guitarPart = part.Player
             }
-            */
-        } else {
-            song.Guitar.SetVolume(0.3)
-            // song.Guitar.Pause()
+        }
+
+        if guitarPart != nil {
+
+            if playGuitar && !stopGuitar {
+
+                guitarPart.SetVolume(1.0)
+
+                /*
+                if !song.Guitar.IsPlaying() {
+                    err := song.Guitar.SetPosition(delta)
+                    if err != nil {
+                        log.Printf("Failed to set guitar position: %v", err)
+                    }
+                    song.Guitar.Play()
+                }
+                */
+            } else {
+                guitarPart.SetVolume(0.3)
+                // song.Guitar.Pause()
+            }
         }
     }
 
@@ -546,58 +553,61 @@ func findFile(basefs fs.FS, name string) (fs.File, error) {
     return foundFile, nil
 }
 
-func loadAudio(audioContext *audio.Context, basefs fs.FS, baseName string) (*audio.Player, time.Duration, func(), error) {
-    type Loader struct {
-        Name string
-        LoadFunc func(*audio.Context, fs.File, string) (*audio.Player, time.Duration, func(), error)
+func isAudioFile(name string) bool {
+    ext := strings.ToLower(filepath.Ext(name))
+    switch ext {
+        case ".mp3", ".ogg", ".opus":
+            return true
+        default:
+            return false
+    }
+}
+
+func loadAudio2(audioContext *audio.Context, basefs fs.FS, name string, ext string) (*audio.Player, time.Duration, func(), error) {
+    file, err := basefs.Open(name)
+    if err != nil {
+        return nil, 0, nil, fmt.Errorf("Unable to open audio file '%v': %v", name, err)
+    }
+    defer file.Close()
+
+    switch ext {
+        case ".mp3": return loadMp3(audioContext, file, name)
+        case ".ogg": return loadOgg(audioContext, file, name)
+        case ".opus": return loadOpus(audioContext, file, name)
     }
 
-    loaders := []Loader{
-        Loader{
-            Name: fmt.Sprintf("%v.ogg", baseName),
-            LoadFunc: loadOgg,
-        },
-        Loader{
-            Name: fmt.Sprintf("%v.mp3", baseName),
-            LoadFunc: loadMp3,
-        },
-        Loader{
-            Name: fmt.Sprintf("%v.opus", baseName),
-            LoadFunc: loadOpus,
-        },
-    }
+    return nil, 0, nil, fmt.Errorf("Unsupported audio file extension '%v' for file '%v'", ext, name)
+}
 
-    for _, loader := range loaders {
-        songFile, err := findFile(basefs, loader.Name)
-        if err == nil {
-            defer songFile.Close()
+// find all audio files in the basefs
+func loadSongParts(audioContext *audio.Context, basefs fs.FS) ([]Part, time.Duration, []func(), error) {
+    var longest time.Duration
+    var parts []Part
+    var cleanupFuncs []func()
 
-            var cleanup func()
-
-            songPlayer, songLength, cleanup, err := loader.LoadFunc(audioContext, songFile, loader.Name)
-            if err != nil {
-                return nil, 0, nil, fmt.Errorf("Unable to create audio player for file '%v': %v", loader.Name, err)
-            }
-
-            return songPlayer, songLength, cleanup, nil
+    err := fs.WalkDir(basefs, ".", func(path string, entry fs.DirEntry, err error) error {
+        if entry.IsDir() {
+            return nil
         }
-    }
 
-    return nil, 0, nil, fmt.Errorf("Unable to find song.ogg or song.mp3 in song directory")
-}
+        if isAudioFile(path) {
+            player, duration, cleanup, err := loadAudio2(audioContext, basefs, path, strings.ToLower(filepath.Ext(path)))
+            if err == nil {
+                parts = append(parts, Part{
+                    Name: strings.TrimSuffix(path, filepath.Ext(path)),
+                    Player: player,
+                })
+                cleanupFuncs = append(cleanupFuncs, cleanup)
+                if duration > longest {
+                    longest = duration
+                }
+            }
+        }
 
-func loadSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, time.Duration, func(), error) {
-    return loadAudio(audioContext, basefs, "song")
-}
+        return nil
+    })
 
-func loadGuitarSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
-    player, _, cleanup, err := loadAudio(audioContext, basefs, "guitar")
-    return player, cleanup, err
-}
-
-func loadVocalSong(audioContext *audio.Context, basefs fs.FS) (*audio.Player, func(), error) {
-    player, _, cleanup, err := loadAudio(audioContext, basefs, "vocals")
-    return player, cleanup, err
+    return parts, longest, cleanupFuncs, err
 }
 
 func MakeSong(audioContext *audio.Context, songDirectory string, difficulty string) (*Song, error) {
@@ -632,30 +642,12 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
         basefs = os.DirFS(songDirectory)
     }
 
-    var songLength time.Duration
-    var songPlayer *audio.Player
+    var err error
 
-    songPlayer, songLength, cleanup, err := loadSong(audioContext, basefs)
+    song.Parts, song.SongLength, song.CleanupFuncs, err = loadSongParts(audioContext, basefs)
     if err != nil {
-        return nil, fmt.Errorf("Unable to load song audio: %v", err)
+        return nil, fmt.Errorf("Unable to load song parts: %v", err)
     }
-    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
-
-    guitarPlayer, cleanup, err := loadGuitarSong(audioContext, basefs)
-    if err != nil {
-        return nil, fmt.Errorf("Unable to load guitar audio: %v", err)
-    }
-    song.CleanupFuncs = append(song.CleanupFuncs, cleanup)
-
-    vocalsPlayer, cleanup, err := loadVocalSong(audioContext, basefs)
-    if err != nil {
-        vocalsPlayer = nil
-    }
-
-    song.SongLength = songLength
-    song.Song = songPlayer
-    song.Guitar = guitarPlayer
-    song.Vocals = vocalsPlayer
 
     // notesPath := filepath.Join(songDirectory, "notes.mid")
 
@@ -670,7 +662,7 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
         return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
     }
 
-    err = song.ReadNotes(notesData, difficulty, songLength)
+    err = song.ReadNotes(notesData, difficulty, song.SongLength)
     if err != nil {
         return nil, err
     }
@@ -963,19 +955,43 @@ func (wrapper *opusWrapper) Read(p []byte) (int, error) {
         }
     }
 
-    atMost := min(len(p) / 2, len(wrapper.buffer) - wrapper.position)
+    switch wrapper.reader.Head.Channels {
+        case 1:
+            // we have to produce stereo audio, so each input sample becomes two output samples
+            atMost := min(len(p) / 4, len(wrapper.buffer) - wrapper.position)
+            // log.Printf("Rendering opus: p=%d buffer=%d atMost=%d position=%d", len(p), len(wrapper.buffer), atMost, wrapper.position)
+            count := 0
+            for count < atMost {
+                low := byte(wrapper.buffer[wrapper.position + count] & 0xFF)
+                high := byte((wrapper.buffer[wrapper.position + count] >> 8) & 0xFF)
 
-    // log.Printf("Rendering opus: p=%d buffer=%d atMost=%d position=%d", len(p), len(wrapper.buffer), atMost, wrapper.position)
+                p[count*4] = low
+                p[count*4+1] = high
+                p[count*4+2] = low
+                p[count*4+3] = high
+                count += 1
+            }
+            wrapper.position += count
 
-    count := 0
-    for count < atMost {
-        p[count*2] = byte(wrapper.buffer[wrapper.position + count] & 0xFF)
-        p[count*2+1] = byte((wrapper.buffer[wrapper.position + count] >> 8) & 0xFF)
-        count += 1
+            return count * 4, nil
+
+        case 2:
+            atMost := min(len(p) / 2, len(wrapper.buffer) - wrapper.position)
+
+            // log.Printf("Rendering opus: p=%d buffer=%d atMost=%d position=%d", len(p), len(wrapper.buffer), atMost, wrapper.position)
+
+            count := 0
+            for count < atMost {
+                p[count*2] = byte(wrapper.buffer[wrapper.position + count] & 0xFF)
+                p[count*2+1] = byte((wrapper.buffer[wrapper.position + count] >> 8) & 0xFF)
+                count += 1
+            }
+            wrapper.position += count
+
+            return count * 2, nil
     }
-    wrapper.position += count
 
-    return count * 2, nil
+    return 0, fmt.Errorf("unsupported number of channels: %d", wrapper.reader.Head.Channels)
 }
 
 func loadOpus(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
@@ -1036,7 +1052,7 @@ func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
         return nil, 0, nil, err
     }
 
-    log.Printf("Loaded OGG file '%s' length %d", name, len(allData))
+    // log.Printf("Loaded OGG file '%s' length %d", name, len(allData))
 
     return songPlayer, time.Duration(length) * time.Second, func(){}, nil
 }

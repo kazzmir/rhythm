@@ -159,27 +159,23 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
                         return
                 }
 
-                songPlayer, _, cleanupSong, err := loadSong(engine.AudioContext, os.DirFS(song))
-                if err != nil {
-                    return
+                parts, _, cleanups, err := loadSongParts(engine.AudioContext, os.DirFS(song))
+                if err == nil {
+                    for _, part := range parts {
+                        part.Player.Play()
+                    }
+
+                    select {
+                        case <-localQuit.Done():
+                            for _, part := range parts {
+                                part.Player.Pause()
+                            }
+
+                            for _, cleanup := range cleanups {
+                                cleanup()
+                            }
+                    }
                 }
-                guitarPlayer, cleanupGuitar, err := loadGuitarSong(engine.AudioContext, os.DirFS(song))
-                if err != nil {
-                    return
-                }
-
-                songPlayer.Play()
-                guitarPlayer.Play()
-
-                select {
-                    case <-localQuit.Done():
-                        songPlayer.Pause()
-                        guitarPlayer.Pause()
-
-                        cleanupSong()
-                        cleanupGuitar()
-                }
-
             }()
         }),
         widget.ListOpts.EntryColor(&widget.ListEntryColor{
