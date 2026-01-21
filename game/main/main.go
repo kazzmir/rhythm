@@ -785,11 +785,11 @@ func (song *Song) ReadNotes(notesData []byte, difficulty string, songLength time
             low = 72
             high = 76
         case "hard":
-            high = 84
-            low = 88
+            low = 84
+            high = 88
         case "expert":
-            high = 96
-            low = 100
+            low = 96
+            high = 100
     }
 
     smf, err := smflib.ReadFrom(bytes.NewReader(notesData))
