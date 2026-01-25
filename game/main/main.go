@@ -36,8 +36,7 @@ import (
     // "github.com/hajimehoshi/ebiten/v2/ebitenutil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 
-    "github.com/kazzmir/opus-go/ogg"
-    "github.com/kazzmir/opus-go/opus"
+    "github.com/kazzmir/opus-go"
 
     "github.com/solarlune/tetra3d"
 )
@@ -913,122 +912,31 @@ func loadMp3(audioContext *audio.Context, file fs.File, name string) (*audio.Pla
     return songPlayer, time.Duration(length) * time.Second, func(){}, nil
 }
 
-type opusWrapper struct {
-    reader *ogg.OpusReader
-    decoder *opus.Decoder
-    buffer []int16
-    preskipRemaining int
-    position int
-}
-
-func (wrapper *opusWrapper) Read(p []byte) (int, error) {
-    // we have len(p) bytes to fill up, which is len(p)/2 int16 samples
-    // we are going to produce stereo audio, so the number of samples read per channel will be len(p)/4
-
-    if wrapper.position >= len(wrapper.buffer) {
-        packet, err := wrapper.reader.ReadAudioPacket()
-        if err != nil {
-            // fill with silence
-            for i := range p {
-                p[i] = 0
-            }
-
-            return len(p), err
-        }
-
-        wrapper.buffer = wrapper.buffer[:cap(wrapper.buffer)]
-        wrapper.position = 0
-
-        decoded, n, err := wrapper.decoder.DecodePacket(packet, wrapper.buffer)
-        if err != nil {
-            return 0, err
-        }
-
-        wrapper.buffer = decoded
-        if wrapper.preskipRemaining > 0 {
-            skip := wrapper.preskipRemaining
-            if skip > n {
-                skip = n
-            }
-            wrapper.preskipRemaining -= skip
-            wrapper.position += skip * int(wrapper.reader.Head.Channels)
-        }
-    }
-
-    switch wrapper.reader.Head.Channels {
-        case 1:
-            // we have to produce stereo audio, so each input sample becomes two output samples
-            atMost := min(len(p) / 4, len(wrapper.buffer) - wrapper.position)
-            // log.Printf("Rendering opus: p=%d buffer=%d atMost=%d position=%d", len(p), len(wrapper.buffer), atMost, wrapper.position)
-            count := 0
-            for count < atMost {
-                low := byte(wrapper.buffer[wrapper.position + count] & 0xFF)
-                high := byte((wrapper.buffer[wrapper.position + count] >> 8) & 0xFF)
-
-                p[count*4] = low
-                p[count*4+1] = high
-                p[count*4+2] = low
-                p[count*4+3] = high
-                count += 1
-            }
-            wrapper.position += count
-
-            return count * 4, nil
-
-        case 2:
-            atMost := min(len(p) / 2, len(wrapper.buffer) - wrapper.position)
-
-            // log.Printf("Rendering opus: p=%d buffer=%d atMost=%d position=%d", len(p), len(wrapper.buffer), atMost, wrapper.position)
-
-            count := 0
-            for count < atMost {
-                p[count*2] = byte(wrapper.buffer[wrapper.position + count] & 0xFF)
-                p[count*2+1] = byte((wrapper.buffer[wrapper.position + count] >> 8) & 0xFF)
-                count += 1
-            }
-            wrapper.position += count
-
-            return count * 2, nil
-    }
-
-    return 0, fmt.Errorf("unsupported number of channels: %d", wrapper.reader.Head.Channels)
-}
-
 func loadOpus(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
     allData, err := io.ReadAll(bufio.NewReader(file))
     if err != nil {
         return nil, 0, nil, err
     }
 
-    reader, err := ogg.NewOpusReader(bytes.NewReader(allData))
+    opusPlayer, err := opusgo.NewPlayerFromReader(bytes.NewReader(allData))
     if err != nil {
         return nil, 0, nil, err
     }
 
-    reader2, _ := ogg.NewOpusReader(bytes.NewReader(allData))
-    totalSamples, err := reader2.TotalSamples()
+    length := opusPlayer.Length()
+    duration, err := opusPlayer.TotalDuration()
     if err != nil {
-        return nil, 0, nil, err
+        duration = time.Duration(float64(length / 4) / float64(opusgo.OpusSampleRateHz) * float64(time.Second))
     }
+    opusPlayer.Seek(0, io.SeekStart)
 
-    decoder, err := opus.NewDecoderFromHead(reader.Head)
-    if err != nil {
-        return nil, 0, nil, err
-    }
-
-    wrapper := &opusWrapper{
-        reader: reader,
-        decoder: decoder,
-        preskipRemaining: int(reader.Head.PreSkip),
-    }
-
-    player, err := audioContext.NewPlayer(audio.ResampleReader(wrapper, totalSamples * int64(reader.Head.Channels), ogg.OpusSampleRateHz, audioContext.SampleRate()))
+    player, err := audioContext.NewPlayer(audio.ResampleReader(opusPlayer, length, opusgo.OpusSampleRateHz, audioContext.SampleRate()))
 
     if err != nil {
         return nil, 0, nil, err
     }
 
-    return player, time.Duration(totalSamples) * time.Second / ogg.OpusSampleRateHz, func(){}, nil
+    return player, duration, func(){}, nil
 }
 
 func loadOgg(audioContext *audio.Context, file fs.File, name string) (*audio.Player, time.Duration, func(), error) {
