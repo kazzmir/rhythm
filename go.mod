@@ -4,8 +4,8 @@ go 1.25.0
 
 require (
 	github.com/ebitenui/ebitenui v0.7.2
-	github.com/hajimehoshi/ebiten/v2 v2.9.7
-	github.com/kazzmir/opus-go v1.1.0
+	github.com/hajimehoshi/ebiten/v2 v2.9.8
+	github.com/kazzmir/opus-go v1.2.1
 	github.com/solarlune/tetra3d v0.17.1
 	gitlab.com/gomidi/midi/v2 v2.3.18
 )
@@ -16,7 +16,7 @@ require (
 	github.com/ebitengine/oto/v3 v3.4.0 // indirect
 	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/frustra/bbcode v0.0.0-20201127003707-6ef347fbe1c8 // indirect
-	github.com/go-text/typesetting v0.3.2 // indirect
+	github.com/go-text/typesetting v0.3.3 // indirect
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/jezek/xgb v1.3.0 // indirect
 	github.com/jfreymuth/oggvorbis v1.0.5 // indirect
