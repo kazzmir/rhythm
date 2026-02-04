@@ -27,9 +27,15 @@ type EventBPMChange struct {
     BPM uint64
 }
 
+type NoteType int
+const (
+    NoteTypeNormal NoteType = iota
+    NoteTypeStarPower
+)
+
 type EventNote struct {
     Time uint64
-    Type int
+    Type NoteType
     Lane int
     Sustain uint64
 }
@@ -105,13 +111,75 @@ func (chart *Chart) GetSyncTrackEvents() []ChartEvent {
     return events
 }
 
-func (chart *Chart) GetNoteEvents() []EventNote {
-    return nil
+func (chart *Chart) GetNoteEvents(kind string) []EventNote {
+    // there are other kinds like Drums, DoubleBass, DoubleRhythm
+    section := chart.FindSection(fmt.Sprintf("%vSingle", kind))
+    if section == nil {
+        return nil
+    }
+
+    convertNoteType := func(noteType string) NoteType {
+        switch strings.ToLower(noteType) {
+            case "n": return NoteTypeNormal
+            case "s": return NoteTypeStarPower
+        }
+
+        return NoteTypeNormal
+    }
+
+    var events []EventNote
+
+    for _, line := range section.Lines {
+        parts := strings.SplitN(line, "=", 2)
+        if len(parts) != 2 {
+            continue
+        }
+        // expect 300 = N 2 0
+        timestampStr := strings.TrimSpace(parts[0])
+        noteStr := strings.TrimSpace(parts[1])
+
+        partsNote := strings.Fields(noteStr)
+
+        if len(partsNote) < 3 {
+            continue
+        }
+
+        timestamp, err := strconv.ParseUint(timestampStr, 10, 64)
+
+        if err != nil {
+            log.Printf("Invalid timestamp in %s: %s", kind, timestampStr)
+            continue
+        }
+
+        noteType := partsNote[0]
+
+        lane, err := strconv.Atoi(partsNote[1])
+        if err != nil {
+            log.Printf("Invalid lane in %s: %s", kind, partsNote[2])
+            continue
+        }
+
+        var sustain uint64 = 0
+        sustain, err = strconv.ParseUint(partsNote[2], 10, 64)
+        if err != nil {
+            log.Printf("Invalid sustain in %s: %s", kind, partsNote[3])
+            continue
+        }
+
+        events = append(events, EventNote{
+            Time: timestamp,
+            Type: convertNoteType(noteType),
+            Lane: lane,
+            Sustain: sustain,
+        })
+    }
+
+    return events
 }
 
-func (chart *Chart) GetEvents() {
+func (chart *Chart) GetEvents(kind string) {
     syncEvents := chart.GetSyncTrackEvents()
-    noteEvents := chart.GetNoteEvents()
+    noteEvents := chart.GetNoteEvents(kind)
 
     _ = syncEvents
     _ = noteEvents
