@@ -1,14 +1,123 @@
 package chart
 
 import (
+    "log"
     "io"
     "fmt"
     "bufio"
+    "strconv"
     "strings"
 )
 
 type Chart struct {
     Metadata map[string]string
+    Sections []*Section
+}
+
+type ChartEvent interface {
+}
+
+type EventTimeSignature struct {
+    Time uint64
+    Numerator int
+}
+
+type EventBPMChange struct {
+    Time uint64
+    BPM uint64
+}
+
+type EventNote struct {
+    Time uint64
+    Type int
+    Lane int
+    Sustain uint64
+}
+
+func (char *Chart) FindSection(name string) *Section {
+    for _, section := range char.Sections {
+        if strings.ToLower(section.Name) == strings.ToLower(name) {
+            return section
+        }
+    }
+
+    return nil
+}
+
+func (chart *Chart) GetSyncTrackEvents() []ChartEvent {
+    section := chart.FindSection("SyncTrack")
+    if section == nil {
+        return nil
+    }
+
+    var events []ChartEvent
+
+    for _, line := range section.Lines {
+        // each line should look like 0 = TS 1 or 0 = B 210
+        parts := strings.SplitN(line, "=", 2)
+        if len(parts) != 2 {
+            continue
+        }
+        timestampStr := strings.TrimSpace(parts[0])
+        eventStr := strings.TrimSpace(parts[1])
+        partsEvent := strings.Fields(eventStr)
+
+        if len(partsEvent) != 2 {
+            continue
+        }
+
+        timestamp, err := strconv.ParseUint(timestampStr, 10, 64)
+        if err != nil {
+            log.Printf("Invalid timestamp in SyncTrack: %s", timestampStr)
+            continue
+        }
+
+        kind := partsEvent[0]
+        switch strings.ToLower(kind) {
+            case "ts":
+                numerator, err := strconv.Atoi(partsEvent[1])
+                if err != nil {
+                    log.Printf("Invalid time signature numerator: %s", partsEvent[1])
+                    continue
+                }
+
+                events = append(events, &EventTimeSignature{
+                    Time: timestamp,
+                    Numerator: numerator,
+                })
+            case "b":
+                bpmValue, err := strconv.ParseUint(partsEvent[1], 10, 64)
+                if err != nil {
+                    log.Printf("Invalid BPM value: %s", partsEvent[1])
+                    continue
+                }
+
+                events = append(events, &EventBPMChange{
+                    Time: timestamp,
+                    BPM: bpmValue,
+                })
+            default:
+                log.Printf("Unknown SyncTrack event type: %s", kind)
+        }
+
+    }
+
+    return events
+}
+
+func (chart *Chart) GetNoteEvents() []EventNote {
+    return nil
+}
+
+func (chart *Chart) GetEvents() {
+    syncEvents := chart.GetSyncTrackEvents()
+    noteEvents := chart.GetNoteEvents()
+
+    _ = syncEvents
+    _ = noteEvents
+
+    // merge the two by sorting them by time
+
 }
 
 type ParseState int
@@ -68,6 +177,7 @@ func ParseChart(reader io.Reader) (*Chart, error) {
 
     var chart Chart
     chart.Metadata = make(map[string]string)
+    chart.Sections = sections
 
     for _, section := range sections {
         fmt.Printf("Section: %s lines %d\n", section.Name, len(section.Lines))
