@@ -9,6 +9,7 @@ import (
     "strconv"
     "strings"
     "slices"
+    "time"
 )
 
 type Chart struct {
@@ -44,6 +45,14 @@ const (
     NoteTypeStarPower
 )
 
+// a playable note in the game
+type Note struct {
+    Type NoteType
+    Lane int
+    Sustain time.Duration
+    Start time.Duration
+}
+
 type EventNote struct {
     Time uint64
     Type NoteType
@@ -63,6 +72,32 @@ func (char *Chart) FindSection(name string) *Section {
     }
 
     return nil
+}
+
+// offset of where the song starts (in ticks?)
+func (char *Chart) GetOffset() float64 {
+    offsetStr, ok := char.Metadata["offset"]
+    if ok {
+        offset, err := strconv.ParseFloat(offsetStr, 64)
+        if err == nil {
+            return offset
+        }
+    }
+
+    return 0
+}
+
+// offset of where the song starts (in ticks?)
+func (char *Chart) GetResolution() float64 {
+    offsetStr, ok := char.Metadata["resolution"]
+    if ok {
+        offset, err := strconv.ParseFloat(offsetStr, 64)
+        if err == nil {
+            return offset
+        }
+    }
+
+    return 0
 }
 
 func (chart *Chart) GetSyncTrackEvents() []ChartEvent {
@@ -210,6 +245,68 @@ func (chart *Chart) GetEvents(kind string) []ChartEvent {
     return all
 }
 
+func (chart *Chart) GetNotes(kind string) []Note {
+    resolution := chart.GetResolution()
+    if resolution < 1 {
+        resolution = 1
+    }
+
+    var notes []Note
+
+    // FIXME: what is the default signature?
+    timeSignature := 4
+    var currentTime time.Duration
+    currentTick := uint64(0)
+    beatsPerMinute := uint64(120_000)
+
+    millisecondsPerBeat := func() float64 {
+        // beats per minute is in microseconds
+        return float64(timeSignature * 60 * 1000) / (float64(beatsPerMinute) / 1000)
+    }
+
+    millisecondsPerTick := func() float64 {
+        return millisecondsPerBeat() / (resolution * float64(timeSignature))
+    }
+
+    updateTime := func(newTick uint64) {
+        diff := newTick - currentTick
+        millis := millisecondsPerTick() * float64(diff)
+        currentTime += time.Duration(millis * 1000) * time.Microsecond
+        currentTick = newTick
+    }
+
+    for _, eventRaw := range chart.GetEvents(kind) {
+        /*
+        if i > 40 {
+            break
+        }
+        fmt.Printf("Current tick: %d time: %v ms per beat=%v ms per tick=%v\n", currentTick, currentTime, millisecondsPerBeat(), millisecondsPerTick())
+        */
+        switch event := eventRaw.(type) {
+            case *EventTimeSignature:
+                updateTime(event.Time)
+                timeSignature = event.Numerator
+            case *EventBPMChange:
+                updateTime(event.Time)
+                beatsPerMinute = event.BPM
+            case *EventNote:
+                updateTime(event.Time)
+
+                sustainTime := time.Duration(float64(event.Sustain) * millisecondsPerTick() * 1e3) * time.Microsecond
+
+                note := Note{
+                    Type: event.Type,
+                    Lane: event.Lane,
+                    Start: currentTime,
+                    Sustain: sustainTime,
+                }
+                notes = append(notes, note)
+        }
+    }
+
+    return notes
+}
+
 type ParseState int
 const (
     ParseTop ParseState = iota
@@ -236,14 +333,20 @@ func ParseChart(reader io.Reader) (*Chart, error) {
         if line == "" {
             continue
         }
-        // fmt.Println(line)
+        // fmt.Printf("Line: '%v'\n", line)
 
         switch state {
             case ParseTop:
-                if strings.HasPrefix(line, "[") {
+                // fmt.Printf("Top: '%v'\n", line)
+                index := strings.Index(line, "[")
+                if index != -1 {
                     state = ParseSectionStart
+
+                    name := strings.Trim(line[index:], "[]")
+
                     currentSection = &Section{
-                        Name: strings.Trim(line, "[]"),
+                        // Name: strings.Trim(line, "[]"),
+                        Name: name,
                     }
                 }
             case ParseSectionStart:
@@ -278,7 +381,7 @@ func ParseChart(reader io.Reader) (*Chart, error) {
             }
             key := strings.TrimSpace(parts[0])
             value := strings.TrimSpace(parts[1])
-            chart.Metadata[key] = value
+            chart.Metadata[strings.ToLower(key)] = value
         }
     }
 

@@ -21,5 +21,19 @@ func main(){
     }
     defer file.Close()
 
-    chart.ParseChart(file)
+    use, err := chart.ParseChart(file)
+    if err != nil {
+        fmt.Printf("Error parsing chart: %v\n", err)
+        return
+    }
+
+    for _, note := range use.GetNotes("Expert") {
+        fmt.Printf("Note: %+v\n", note)
+
+        /*
+        if i > 5 {
+            break
+        }
+        */
+    }
 }
