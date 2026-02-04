@@ -73,3 +73,35 @@ func TestEventNotes(test *testing.T) {
         test.Errorf("Fourth note event incorrect, got %+v", events[3])
     }
 }
+
+func TestAllEvents(test *testing.T) {
+    input := `[SyncTrack]
+    {
+        0 = TS 4
+        1920 = B 210000
+        3000 = TS 3
+    }
+    [ExpertSingle]
+    {
+        0 = N 0 192
+        800 = N 1 192
+        1920 = S 2 96
+        2000 = N 3 192
+    }
+    `
+
+    chart, err := ParseChart(strings.NewReader(input))
+    if err != nil {
+        test.Fatalf("Failed to parse chart: %v", err)
+    }
+
+    events := chart.GetEvents("Expert")
+    if len(events) != 7 {
+        test.Fatalf("Expected 7 total events, got %d", len(events))
+    }
+
+    note := events[2].(*EventNote)
+    if note.Time != 800 || note.Lane != 1 || note.Sustain != 192 || note.Type != NoteTypeNormal {
+        test.Errorf("First event incorrect, got %+v", events[2])
+    }
+}

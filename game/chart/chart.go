@@ -3,10 +3,12 @@ package chart
 import (
     "log"
     "io"
+    "cmp"
     "fmt"
     "bufio"
     "strconv"
     "strings"
+    "slices"
 )
 
 type Chart struct {
@@ -15,6 +17,7 @@ type Chart struct {
 }
 
 type ChartEvent interface {
+    CompareKey() uint64
 }
 
 type EventTimeSignature struct {
@@ -22,9 +25,17 @@ type EventTimeSignature struct {
     Numerator int
 }
 
+func (e *EventTimeSignature) CompareKey() uint64 {
+    return e.Time
+}
+
 type EventBPMChange struct {
     Time uint64
     BPM uint64
+}
+
+func (e *EventBPMChange) CompareKey() uint64 {
+    return e.Time
 }
 
 type NoteType int
@@ -40,9 +51,13 @@ type EventNote struct {
     Sustain uint64
 }
 
+func (e *EventNote) CompareKey() uint64 {
+    return e.Time
+}
+
 func (char *Chart) FindSection(name string) *Section {
     for _, section := range char.Sections {
-        if strings.ToLower(section.Name) == strings.ToLower(name) {
+        if strings.EqualFold(section.Name, name) {
             return section
         }
     }
@@ -177,15 +192,22 @@ func (chart *Chart) GetNoteEvents(kind string) []EventNote {
     return events
 }
 
-func (chart *Chart) GetEvents(kind string) {
+func (chart *Chart) GetEvents(kind string) []ChartEvent {
     syncEvents := chart.GetSyncTrackEvents()
     noteEvents := chart.GetNoteEvents(kind)
 
-    _ = syncEvents
-    _ = noteEvents
+    var all []ChartEvent
 
-    // merge the two by sorting them by time
+    all = append(all, syncEvents...)
+    for _, note := range noteEvents {
+        all = append(all, &note)
+    }
 
+    slices.SortFunc(all, func(a, b ChartEvent) int {
+        return cmp.Compare(a.CompareKey(), b.CompareKey())
+    })
+
+    return all
 }
 
 type ParseState int
@@ -247,20 +269,26 @@ func ParseChart(reader io.Reader) (*Chart, error) {
     chart.Metadata = make(map[string]string)
     chart.Sections = sections
 
+    metadata := chart.FindSection("Song")
+    if metadata != nil {
+        for _, line := range metadata.Lines {
+            parts := strings.SplitN(line, "=", 2)
+            if len(parts) != 2 {
+                continue
+            }
+            key := strings.TrimSpace(parts[0])
+            value := strings.TrimSpace(parts[1])
+            chart.Metadata[key] = value
+        }
+    }
+
+
+        /*
     for _, section := range sections {
         fmt.Printf("Section: %s lines %d\n", section.Name, len(section.Lines))
 
-        if section.Name == "Song" {
-            for _, line := range section.Lines {
-                parts := strings.SplitN(line, "=", 2)
-                if len(parts) != 2 {
-                    continue
-                }
-                key := strings.TrimSpace(parts[0])
-                value := strings.TrimSpace(parts[1])
-                chart.Metadata[key] = value
-            }
-        } else if section.Name == "SyncTrack" {
+        // for debugging
+        else if section.Name == "SyncTrack" {
             // every line should be 0 = TS 4 or 0 = B 210
             for _, line := range section.Lines {
                 parts := strings.SplitN(line, "=", 2)
@@ -295,8 +323,8 @@ func ParseChart(reader io.Reader) (*Chart, error) {
                 fmt.Printf("Note in %s: %s -> %s\n", section.Name, timestampStr, noteStr)
             }
         }
-
     }
+        */
 
     return &chart, nil
 }
