@@ -2003,7 +2003,6 @@ func playSong(yield coroutine.YieldFunc, engine *Engine, songPath string, settin
 // true if the directory contains song.ogg, guitar.ogg, and notes.mid
 func isSongDirectory(path string) bool {
     hasSong := false
-    hasGuitar := false
     hasNotes := false
 
     entries, err := os.ReadDir(path)
@@ -2019,12 +2018,11 @@ func isSongDirectory(path string) bool {
         name := strings.ToLower(entry.Name())
         switch name {
             case "song.ogg", "song.mp3", "song.opus": hasSong = true
-            case "guitar.ogg", "guitar.mp3", "guitar.opus": hasGuitar = true
             case "notes.mid", "notes.chart": hasNotes = true
         }
     }
 
-    return hasSong && hasGuitar && hasNotes
+    return hasSong && hasNotes
 }
 
 func scanSongs(where string, depth int) []string {
@@ -2067,13 +2065,6 @@ func scanSongs(where string, depth int) []string {
     })
 
     return paths
-
-    /*
-    return []string{
-        "Queen - Killer Queen",
-        "CloneHeroSongs/Yes - Roundabout",
-    }
-    */
 }
 
 func loadPng(file io.Reader) (*ebiten.Image, error) {

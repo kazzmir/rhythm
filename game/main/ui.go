@@ -133,7 +133,12 @@ func chooseSong(yield coroutine.YieldFunc, engine *Engine, background *Backgroun
         widget.ListOpts.EntryLabelFunc(
             func (e any) string {
                 name := e.(string)
-                return filepath.Base(name)
+                base := filepath.Base(name)
+                limit := 60
+                if len(base) > limit {
+                    return base[:limit - 3] + "..."
+                }
+                return base
             },
         ),
         widget.ListOpts.EntrySelectedHandler(func (args *widget.ListEntrySelectedEventArgs) {
