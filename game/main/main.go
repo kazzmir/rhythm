@@ -20,6 +20,7 @@ import (
     "bytes"
     "sync"
     "strings"
+    "slices"
     "errors"
 
     "github.com/kazzmir/rhythm/lib/coroutine"
@@ -806,6 +807,16 @@ func (song *Song) DoReadNotes(basefs fs.FS, difficulty string, songLength time.D
         chart, err := chartlib.ParseChart(bufio.NewReader(chartsFile))
         if err != nil {
             return err
+        }
+
+        options := chart.GetDifficulties("single")
+
+        if len(options) == 0 {
+            return fmt.Errorf("No chart difficulties found")
+        }
+
+        if !slices.Contains(options, difficulty) {
+            difficulty = options[0]
         }
 
         for _, note := range chart.GetNotes(chartDifficulty(difficulty)) {

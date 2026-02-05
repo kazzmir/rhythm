@@ -309,6 +309,18 @@ func (chart *Chart) GetNotes(kind string) []Note {
     return notes
 }
 
+func (chart *Chart) GetDifficulties(kind string) []string {
+    var out []string
+    for _, section := range chart.Sections {
+        if strings.HasSuffix(strings.ToLower(section.Name), strings.ToLower(kind)) {
+            firstPart := section.Name[:len(section.Name)-len(kind)]
+            out = append(out, firstPart)
+        }
+    }
+
+    return out
+}
+
 type ParseState int
 const (
     ParseTop ParseState = iota
