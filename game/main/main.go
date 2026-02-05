@@ -25,6 +25,7 @@ import (
     "github.com/kazzmir/rhythm/lib/coroutine"
     "github.com/kazzmir/rhythm/lib/colorconv"
     "github.com/kazzmir/rhythm/data"
+    chartlib "github.com/kazzmir/rhythm/game/chart"
 
     smflib "gitlab.com/gomidi/midi/v2/smf"
 
@@ -584,6 +585,8 @@ func loadSongParts(audioContext *audio.Context, basefs fs.FS) ([]Part, time.Dura
     var parts []Part
     var cleanupFuncs []func()
 
+    var errors []error
+
     err := fs.WalkDir(basefs, ".", func(path string, entry fs.DirEntry, err error) error {
         if entry.IsDir() {
             return nil
@@ -600,11 +603,19 @@ func loadSongParts(audioContext *audio.Context, basefs fs.FS) ([]Part, time.Dura
                 if duration > longest {
                     longest = duration
                 }
+            } else {
+                errors = append(errors, err)
             }
         }
 
         return nil
     })
+
+    if err == nil {
+        if len(parts) == 0 && len(errors) > 0 {
+            err = errors[0]
+        }
+    }
 
     return parts, longest, cleanupFuncs, err
 }
@@ -648,25 +659,23 @@ func MakeSong(audioContext *audio.Context, songDirectory string, difficulty stri
         return nil, fmt.Errorf("Unable to load song parts: %v", err)
     }
 
+    log.Printf("Song length: %v", song.SongLength)
+
     // notesPath := filepath.Join(songDirectory, "notes.mid")
 
-    notesFile, err := findFile(basefs, "notes.mid")
+    err = song.DoReadNotes(basefs, difficulty, song.SongLength)
     if err != nil {
-        return nil, fmt.Errorf("Unable to open MIDI file '%v': %v", "notes.mid", err)
-    }
-    defer notesFile.Close()
-
-    notesData, err := io.ReadAll(bufio.NewReader(notesFile))
-    if err != nil {
-        return nil, fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
+        return nil, fmt.Errorf("Unable to read song notes: %v", err)
     }
 
-    err = song.ReadNotes(notesData, difficulty, song.SongLength)
-    if err != nil {
-        return nil, err
+    notesMidiFile, err := findFile(basefs, "notes.mid")
+    if err == nil {
+        defer notesMidiFile.Close()
+        data, err := io.ReadAll(bufio.NewReader(notesMidiFile))
+        if err == nil {
+            err = song.ReadLyrics(data)
+        }
     }
-
-    err = song.ReadLyrics(notesData)
 
     iniFile, err := findFile(basefs, "song.ini")
     if err == nil {
@@ -762,8 +771,78 @@ func (song *Song) ReadLyrics(notesData []byte) error {
     return nil
 }
 
+func (song *Song) DoReadNotes(basefs fs.FS, difficulty string, songLength time.Duration) error {
+    doLoadMid := func() error {
+        notesFile, err := findFile(basefs, "notes.mid")
+        if err != nil {
+            return fmt.Errorf("Unable to open MIDI file '%v': %v", "notes.mid", err)
+        }
+        defer notesFile.Close()
+
+        notesData, err := io.ReadAll(bufio.NewReader(notesFile))
+        if err != nil {
+            return fmt.Errorf("Unable to read MIDI file '%v': %v", "notes.mid", err)
+        }
+
+        err = song.ReadMidiNotes(notesData, difficulty, song.SongLength)
+        if err != nil {
+            return err
+        }
+
+        return nil
+    }
+
+    chartDifficulty := func(difficulty string) string {
+        return difficulty
+    }
+
+    doLoadChart := func() error {
+        chartsFile, err := findFile(basefs, "notes.chart")
+        if err != nil {
+            return err
+        }
+        defer chartsFile.Close()
+
+        chart, err := chartlib.ParseChart(bufio.NewReader(chartsFile))
+        if err != nil {
+            return err
+        }
+
+        for _, note := range chart.GetNotes(chartDifficulty(difficulty)) {
+            useFret := note.Lane
+
+            if useFret >= 0 && useFret < len(song.Frets) {
+                fret := &song.Frets[useFret]
+
+                duration := note.Sustain
+                if duration < time.Millisecond * 50 {
+                    duration = time.Millisecond * 50
+                }
+
+                fret.Notes = append(fret.Notes, Note{
+                    Start: note.Start,
+                    End: note.Start + duration,
+                })
+            }
+        }
+
+        return nil
+    }
+
+    midiError := doLoadMid()
+
+    if midiError != nil {
+        chartError := doLoadChart()
+        if chartError != nil {
+            return fmt.Errorf("Unable to read midi or chart data: midi error: %v, chart error: %v", midiError, chartError)
+        }
+    }
+
+    return nil
+}
+
 // notesData is assumed to be the contents of a MIDI file
-func (song *Song) ReadNotes(notesData []byte, difficulty string, songLength time.Duration) error {
+func (song *Song) ReadMidiNotes(notesData []byte, difficulty string, songLength time.Duration) error {
 
     // FIXME: dire straits sultans of swing uses keys higher than the normal range
 
@@ -1930,7 +2009,7 @@ func isSongDirectory(path string) bool {
         switch name {
             case "song.ogg", "song.mp3", "song.opus": hasSong = true
             case "guitar.ogg", "guitar.mp3", "guitar.opus": hasGuitar = true
-            case "notes.mid": hasNotes = true
+            case "notes.mid", "notes.chart": hasNotes = true
         }
     }
 

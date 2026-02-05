@@ -231,6 +231,8 @@ func (chart *Chart) GetEvents(kind string) []ChartEvent {
     syncEvents := chart.GetSyncTrackEvents()
     noteEvents := chart.GetNoteEvents(kind)
 
+    // FIXME: include the Events section
+
     var all []ChartEvent
 
     all = append(all, syncEvents...)
