@@ -2065,13 +2065,6 @@ func scanSongs(where string, depth int) []string {
     })
 
     return paths
-
-    /*
-    return []string{
-        "Queen - Killer Queen",
-        "CloneHeroSongs/Yes - Roundabout",
-    }
-    */
 }
 
 func loadPng(file io.Reader) (*ebiten.Image, error) {
